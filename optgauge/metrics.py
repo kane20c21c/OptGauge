@@ -240,7 +240,8 @@ def compute_day(raw: pd.DataFrame, S: float, t: DateType) -> tuple[dict, dict]:
 # ──────────────────────────────────────────────
 # 시계열 후처리 (Δ·정규화 입력 준비)
 # ──────────────────────────────────────────────
-GAP_GUARD_DAYS = 7  # 직전 행과 7일(달력) 초과 벌어지면 Δ 계열 무효 (수집 갭 오염 방지)
+GAP_GUARD_DAYS = 12  # 직전 행과 12일(달력) 초과 벌어지면 Δ 계열 무효 (수집 갭 오염 방지).
+                     # 연휴(추석 최대 8일 실측)는 갭 아님 — normalize.GAP_DAYS 와 동일 근거 (2026-07-17)
 
 
 def postprocess(df: pd.DataFrame, k200: pd.DataFrame | None = None) -> pd.DataFrame:

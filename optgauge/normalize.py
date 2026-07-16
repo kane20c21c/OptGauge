@@ -12,7 +12,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-GAP_DAYS = 7
+GAP_DAYS = 12  # 2026-07-17 상향(7→12): 추석 연휴 8일(2025-10-02→10-10 실측)을 갭으로
+               # 오판해 롤링 리셋 → 전환기 평가 왜곡. 진짜 수집 갭은 몇 달 단위라 12일로 충분.
 FLAG_HIGH = 95.0   # P_roll ≥ 95 → HIGH
 FLAG_LOW = 5.0     # P_roll ≤ 5  → LOW
 FLAG_JUMP_Z = 2.5  # |Z_delta| ≥ 2.5 → JUMP
