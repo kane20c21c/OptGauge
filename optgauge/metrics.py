@@ -209,7 +209,7 @@ def compute_day(raw: pd.DataFrame, S: float, t: DateType) -> tuple[dict, dict]:
     row: dict = {"S": S, "FrontExpiry": front}
     if front is None or not np.isfinite(S):
         # 만기 판정 불가 또는 지수 결측 — IV 계열 전부 NaN (U0-5/U0-6)
-        for k in ("ATM_IV", "K_atm", "Skew_9010", "Skew_9505", "Skew_vol1s",
+        for k in ("ATM_IV", "K_atm", "Skew", "Skew_9010", "Skew_9505", "Skew_vol1s",
                   "Skew_vol05s", "Skew_vol05s_i",
                   "TS_diff", "TS_ratio"):
             row[k] = np.nan
@@ -221,8 +221,9 @@ def compute_day(raw: pd.DataFrame, S: float, t: DateType) -> tuple[dict, dict]:
     row["Skew_9010"] = skew_fixed(valid, front, S, 0.90, 1.10)
     row["Skew_9505"] = skew_fixed(valid, front, S, 0.95, 1.05)
     row["Skew_vol1s"] = skew_voladj(valid, front, S, atm, t, k_sigma=1.0)
-    row["Skew_vol05s"] = skew_voladj(valid, front, S, atm, t, k_sigma=0.5)          # 제안1만
-    row["Skew_vol05s_i"] = skew_voladj(valid, front, S, atm, t, k_sigma=0.5, interp=True)  # 제안1+2
+    row["Skew_vol05s"] = skew_voladj(valid, front, S, atm, t, k_sigma=0.5)
+    row["Skew_vol05s_i"] = skew_voladj(valid, front, S, atm, t, k_sigma=0.5, interp=True)
+    row["Skew"] = row["Skew_vol05s"]  # ★ 정본 별칭 (2026-07-16 Kane 확정) — Layer B/C 는 이 컬럼 사용
 
     if nxt is not None:
         atm_n, _ = atm_iv(valid, nxt, S)
@@ -260,7 +261,7 @@ def postprocess(df: pd.DataFrame, k200: pd.DataFrame | None = None) -> pd.DataFr
     df["dATM_IV"] = df["ATM_IV"].diff()
     df.loc[df["roll_flag"] | gap, "dATM_IV"] = np.nan  # 월물 불연속(G1) + 갭
 
-    for c in ("Skew_9010", "Skew_9505", "Skew_vol1s", "Skew_vol05s", "Skew_vol05s_i"):
+    for c in ("Skew", "Skew_9010", "Skew_9505", "Skew_vol1s", "Skew_vol05s", "Skew_vol05s_i"):
         df[c + "_norm"] = df[c] / df["ATM_IV"]
 
     # RV20 (연율화 %) — 연속 지수 시계열에서 계산 후 날짜 매핑
