@@ -1,0 +1,56 @@
+# OptGauge — 옵션 구조 신호 게이지 (CLAUDE.md)
+
+## 프로젝트 개요
+
+**OptGauge** 는 KOSPI200 파생시장의 "자세(posture)"를 매일 기술하는 게이지 시스템이다.
+방향 예측이 아니라 **"오늘 파생시장이 평소와 다른 점"** 의 일일 보고가 목적.
+
+- 3층 구조: **계기판**(관측치·백분위) → **이상 탐지**(극단값 플래그) → **서술**(복수 후보 해석 병기)
+- 게이지 5종: IV 수준·변화 / 스큐 / 기간구조 / 미결제 분포 / VKOSPI
+- 최종 목표: 웹 대시보드
+
+## 소유권 원칙 (Kane 생태계)
+
+- **LLV(longlivevault) = 데이터 공급자** — 옵션/선물 일별 parquet(IV·OI 포함),
+  KOSPI200/VKOSPI 지수. OptGauge 는 LLV `data_service` 진입점만 호출한다.
+- **OptGauge = 해석 계층** — 지표 계산·백분위·플래그·서술·대시보드 소유.
+  hillstorm(Wyckoff 엔진)과 같은 위상의 독립 프로젝트.
+- LLV 내부 모듈 직접 import 금지. 신규 데이터 수집 로직을 여기 만들지 말 것
+  (수집 필요가 생기면 LLV 에 추가하고 여기서는 소비만).
+
+## 데이터 소스 (전부 LLV 경유)
+
+```python
+import sys; sys.path.insert(0, "~/DriveForALL/StoLab/longlivevault")  # 경로는 .env/설정으로
+from stolab_data.data_service import (
+    get_option_daily, get_option_range,   # 옵션/선물 일별 (kind="opt"/"fut")
+    get_ohlcv,                            # KOSPI200/VKOSPI parquet (Ticker 지정)
+    fetch_vkospi_realtime,                # VKOSPI 실시간 (KIS 1차/investing 폴백)
+)
+```
+
+- 옵션 일별 스키마: Date/Underlying/Type(CALL·PUT)/Code/Name/OHLC/Change/IV/BasePrice/Volume/Amount/OI
+- ⚠ 주간/야간 세션 행이 별도 — **야간 행 IV=0, 주간 행만 사용** (명세서 공통규칙 참조)
+- 백필 상태: LLV 예약작업 krx-option-backfill-resume 이 2020→2015→2010 단계 확장 중
+
+## 디렉토리 구조 (계획)
+
+```
+OptGauge/
+├── CLAUDE.md
+├── docs/
+│   └── 지표명세서_v0.1.md    # 게이지 지표 정의 정본 (Kane 승인 후 구현)
+├── optgauge/                  # 패키지 (2단계에서 생성)
+│   ├── metrics.py             # Layer A: 지표 계산
+│   ├── normalize.py           # Layer B: 백분위·z-score·플래그
+│   └── narrate.py             # Layer C: 서술 템플릿
+├── notebooks/                 # 프로토타입/실증 비교
+└── tests/
+```
+
+## 핵심 설계 결정 기록
+
+- **2026 극단 변동성 레짐** (Kane 확인): VKOSPI 2026-02-26 이후 50 미만 없음 (7/15 종가 85.79).
+  → 전체기간 백분위는 2026년 내내 포화 — 롤링/Δ 기반 정규화 병기가 필수 설계 조건.
+- 스큐는 머니니스 기반(0.90P/1.10C)을 1안으로, 프로토타입에서 0.95/1.05 및 델타 근사와 비교.
+- 게이지는 매도/매수 신호가 아님 — 서술은 반드시 복수 후보 해석 병기 (단정 금지).
