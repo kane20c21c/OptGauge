@@ -210,25 +210,46 @@ def compute_day(raw: pd.DataFrame, S: float, t: DateType) -> tuple[dict, dict]:
 # ──────────────────────────────────────────────
 # 시계열 후처리 (Δ·정규화 입력 준비)
 # ──────────────────────────────────────────────
-def postprocess(df: pd.DataFrame) -> pd.DataFrame:
-    """롤 플래그, ΔATM(롤일 결측), 스큐 정규화, RV20/VRP, ΔOI, VK 파생."""
+GAP_GUARD_DAYS = 7  # 직전 행과 7일(달력) 초과 벌어지면 Δ 계열 무효 (수집 갭 오염 방지)
+
+
+def postprocess(df: pd.DataFrame, k200: pd.DataFrame | None = None) -> pd.DataFrame:
+    """롤 플래그, ΔATM(롤일 결측), 스큐 정규화, RV20/VRP, ΔOI, VK 파생.
+
+    Args:
+        df:   compute_day 행들의 DataFrame (Date 포함)
+        k200: KOSPI200 **연속** 일별 시계열 [Date, Close] — RV20 은 반드시 이걸로
+              계산한다 (옵션 수집 갭을 가로지른 수익률 오염 방지, 2026-07-16 버그 수정).
+              None 이면 RV20/VRP 는 NaN.
+    """
     df = df.sort_values("Date").reset_index(drop=True)
     df["roll_flag"] = df["FrontExpiry"].ne(df["FrontExpiry"].shift(1)) & df["FrontExpiry"].shift(1).notna()
 
+    # 수집 갭 가드 — 직전 행이 멀면 모든 Δ 계열 무효
+    gap = df["Date"].diff() > pd.Timedelta(days=GAP_GUARD_DAYS)
+
     df["dATM_IV"] = df["ATM_IV"].diff()
-    df.loc[df["roll_flag"], "dATM_IV"] = np.nan  # 월물 불연속 (G1)
+    df.loc[df["roll_flag"] | gap, "dATM_IV"] = np.nan  # 월물 불연속(G1) + 갭
 
     for c in ("Skew_9010", "Skew_9505", "Skew_vol1s"):
         df[c + "_norm"] = df[c] / df["ATM_IV"]
 
-    # RV20 (연율화 %) — S 는 KOSPI200 종가
-    logret = np.log(df["S"] / df["S"].shift(1))
-    df["RV20"] = logret.rolling(20).std() * np.sqrt(252) * 100
+    # RV20 (연율화 %) — 연속 지수 시계열에서 계산 후 날짜 매핑
+    if k200 is not None and not k200.empty:
+        k = k200.sort_values("Date").reset_index(drop=True)
+        logret = np.log(k["Close"] / k["Close"].shift(1))
+        rv = (logret.rolling(20).std() * np.sqrt(252) * 100).rename("RV20")
+        rv_map = pd.Series(rv.values, index=k["Date"].values)
+        df["RV20"] = df["Date"].map(rv_map)
+    else:
+        df["RV20"] = np.nan
     df["VRP"] = df["ATM_IV"] - df["RV20"]
 
     df["dOI_total_pct"] = df["OI_total"].pct_change() * 100
+    df.loc[gap, "dOI_total_pct"] = np.nan
 
     if "VK" in df.columns:
         df["dVK"] = df["VK"].diff()
+        df.loc[gap, "dVK"] = np.nan
         df["VK_basis"] = df["VK"] - df["ATM_IV"]
     return df

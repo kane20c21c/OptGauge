@@ -65,7 +65,7 @@ def main() -> None:
         if i % 100 == 0:
             logger.info("%d/%d (%.1fs)", i, len(dates), time.time() - t0)
 
-    df = postprocess(pd.DataFrame(rows))
+    df = postprocess(pd.DataFrame(rows), k200=k200)
     OUT_DIR.mkdir(exist_ok=True)
     df.to_parquet(OUT_DIR / "gauge_daily.parquet", index=False)
     df.to_csv(OUT_DIR / "gauge_daily.csv", index=False, encoding="utf-8-sig")
