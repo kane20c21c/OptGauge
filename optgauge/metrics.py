@@ -122,19 +122,45 @@ def skew_fixed(valid: pd.DataFrame, expiry: str, S: float, put_m: float, call_m:
     return ivp - ivc  # 어느 한쪽 NaN 이면 NaN 전파
 
 
-def skew_voladj(valid: pd.DataFrame, expiry: str, S: float, atm: float, t: DateType) -> float:
-    """vol-조정 ±1σ 스큐: K = S·exp(∓σ√T), σ = ATM_IV/100, T = 잔존영업일/252."""
+def _iv_interp(sub: pd.DataFrame, side: str, k_target: float) -> float:
+    """목표 행사가를 감싸는 인접 2개 유효 IV 를 선형 보간. 외삽 금지 (범위 밖 NaN).
+
+    2026-07-16 Kane 승인: 실제 호가 2개 사이 보간만 허용 — 상장/유효 범위 밖은 결측 유지.
+    """
+    s = sub[sub["Type"] == side].sort_values("Strike")
+    if len(s) < 2:
+        return np.nan
+    ks, ivs = s["Strike"].values, s["IV"].values
+    if k_target < ks[0] or k_target > ks[-1]:
+        return np.nan  # 외삽 금지
+    return float(np.interp(k_target, ks, ivs))
+
+
+def skew_voladj(
+    valid: pd.DataFrame, expiry: str, S: float, atm: float, t: DateType,
+    k_sigma: float = 1.0, interp: bool = False,
+) -> float:
+    """vol-조정 스큐: K = S·exp(∓k·σ√T), σ = ATM_IV/100, T = 잔존영업일/252.
+
+    Args:
+        k_sigma: σ-거리 (1.0 = ±1σ, 0.5 = ±0.5σ)
+        interp:  True 면 인접 행사가 선형 보간, False 면 최근접 스냅(허용오차 밖 NaN)
+    """
     if not np.isfinite(atm):
         return np.nan
     T = remaining_busdays(t, expiry) / 252.0
     if T <= 0:
         return np.nan
-    sig_sqrt_t = (atm / 100.0) * np.sqrt(T)
+    sig_sqrt_t = k_sigma * (atm / 100.0) * np.sqrt(T)
     k_put, k_call = S * np.exp(-sig_sqrt_t), S * np.exp(sig_sqrt_t)
-    tol = VOLADJ_TOL_SIGMA * sig_sqrt_t * S
     sub = valid[valid["Expiry"] == expiry]
-    ivp = _iv_near(sub, "PUT", k_put, tol)
-    ivc = _iv_near(sub, "CALL", k_call, tol)
+    if interp:
+        ivp = _iv_interp(sub, "PUT", k_put)
+        ivc = _iv_interp(sub, "CALL", k_call)
+    else:
+        tol = VOLADJ_TOL_SIGMA * sig_sqrt_t * S
+        ivp = _iv_near(sub, "PUT", k_put, tol)
+        ivc = _iv_near(sub, "CALL", k_call, tol)
     return ivp - ivc
 
 
@@ -184,6 +210,7 @@ def compute_day(raw: pd.DataFrame, S: float, t: DateType) -> tuple[dict, dict]:
     if front is None or not np.isfinite(S):
         # 만기 판정 불가 또는 지수 결측 — IV 계열 전부 NaN (U0-5/U0-6)
         for k in ("ATM_IV", "K_atm", "Skew_9010", "Skew_9505", "Skew_vol1s",
+                  "Skew_vol05s", "Skew_vol05s_i",
                   "TS_diff", "TS_ratio"):
             row[k] = np.nan
         row.update(oi_metrics(base, front, S))
@@ -193,7 +220,9 @@ def compute_day(raw: pd.DataFrame, S: float, t: DateType) -> tuple[dict, dict]:
     row["ATM_IV"], row["K_atm"] = atm, k_atm
     row["Skew_9010"] = skew_fixed(valid, front, S, 0.90, 1.10)
     row["Skew_9505"] = skew_fixed(valid, front, S, 0.95, 1.05)
-    row["Skew_vol1s"] = skew_voladj(valid, front, S, atm, t)
+    row["Skew_vol1s"] = skew_voladj(valid, front, S, atm, t, k_sigma=1.0)
+    row["Skew_vol05s"] = skew_voladj(valid, front, S, atm, t, k_sigma=0.5)          # 제안1만
+    row["Skew_vol05s_i"] = skew_voladj(valid, front, S, atm, t, k_sigma=0.5, interp=True)  # 제안1+2
 
     if nxt is not None:
         atm_n, _ = atm_iv(valid, nxt, S)
@@ -231,7 +260,7 @@ def postprocess(df: pd.DataFrame, k200: pd.DataFrame | None = None) -> pd.DataFr
     df["dATM_IV"] = df["ATM_IV"].diff()
     df.loc[df["roll_flag"] | gap, "dATM_IV"] = np.nan  # 월물 불연속(G1) + 갭
 
-    for c in ("Skew_9010", "Skew_9505", "Skew_vol1s"):
+    for c in ("Skew_9010", "Skew_9505", "Skew_vol1s", "Skew_vol05s", "Skew_vol05s_i"):
         df[c + "_norm"] = df[c] / df["ATM_IV"]
 
     # RV20 (연율화 %) — 연속 지수 시계열에서 계산 후 날짜 매핑
