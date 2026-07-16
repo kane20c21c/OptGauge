@@ -218,6 +218,7 @@ def compute_day(raw: pd.DataFrame, S: float, t: DateType) -> tuple[dict, dict]:
 
     atm, k_atm = atm_iv(valid, front, S)
     row["ATM_IV"], row["K_atm"] = atm, k_atm
+    row["Front_DTE"] = remaining_busdays(t, front)  # 잔존 거래일 — TS/근월 IV 해석 컨텍스트 (해석노트 함정 5)
     row["Skew_9010"] = skew_fixed(valid, front, S, 0.90, 1.10)
     row["Skew_9505"] = skew_fixed(valid, front, S, 0.95, 1.05)
     row["Skew_vol1s"] = skew_voladj(valid, front, S, atm, t, k_sigma=1.0)
