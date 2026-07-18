@@ -11,10 +11,16 @@
 
 ## 소유권 원칙 (Kane 생태계)
 
-- **LLV(longlivevault) = 데이터 공급자** — 옵션/선물 일별 parquet(IV·OI 포함),
+- **LLV(longlivevault) = 데이터 공급자 + 게이지 실행·보관** — 옵션/선물 일별 parquet(IV·OI 포함),
   KOSPI200/VKOSPI 지수. OptGauge 는 LLV `data_service` 진입점만 호출한다.
-- **OptGauge = 해석 계층** — 지표 계산·백분위·플래그·서술·대시보드 소유.
+  **[확정 2026-07-18 Kane — hillstorm 패턴 적용]**: 게이지 일일 계산의 실행·보관도 LLV 로 이관.
+  LLV 일일 잡이 `optgauge.metrics / normalize / composite` 를 **호출만** 하고 (수식 복제 금지 —
+  indicator_calculator 의 hillstorm 규율과 동일), 산출을 LLV `data/indicators/gauge_*.parquet` 에 저장.
+- **OptGauge = 수식·검증·해석 계층** — 지표 수식 정본(metrics/normalize/composite), 검증 게이트
+  (tests V1~V5 — LLV 잡의 선행 게이트), 서술(narrate)·메일, 문서 정본(명세서·해석노트) 소유.
   hillstorm(Wyckoff 엔진)과 같은 위상의 독립 프로젝트.
+- **대시보드 = StockPortfolio :8000 `/optgauge` 페이지** — LLV 게이지 parquet 읽기 전용 소비
+  + `core.claude.ask_claude` 해석 (다각도분석 패턴). 와이어프레임: docs/dashboard_wireframe.html
 - LLV 내부 모듈 직접 import 금지. 신규 데이터 수집 로직을 여기 만들지 말 것
   (수집 필요가 생기면 LLV 에 추가하고 여기서는 소비만).
 
