@@ -10,6 +10,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from optgauge.metrics import second_thursday
+
 # ── 가드 임계 (해석노트 근거) ─────────────────────────────
 ROLL_GUARD_DAYS = 5    # 함정 1: 롤/만기 전후 ±5거래일 OI 계열 왜곡 후보
 DTE_GUARD = 7          # 함정 5: 잔존 ≤7일 TS 는 만기근접 왜곡 후보
@@ -102,6 +104,18 @@ def _rv_rising(df: pd.DataFrame, i: int, days: int = 5) -> bool | None:
     return _col_rising(df, i, "RV20", days)
 
 
+def _is_expiry_day(df: pd.DataFrame, i: int) -> bool:
+    """함정 9 — 보고일이 만기 거래일인가 (둘째 목요일, 휴장 시 직전 거래일)."""
+    d = df.at[i, "Date"]
+    E = pd.Timestamp(second_thursday(f"{d.year}{d.month:02d}"))
+    gap = (E - d).days
+    if gap == 0:
+        return True
+    if 0 < gap <= 2 and i + 1 < len(df) and df.at[i + 1, "Date"] > E:
+        return True  # 만기일 휴장 → 직전 거래일이 만기 거래일
+    return False
+
+
 def vrp_state(df: pd.DataFrame, i: int) -> tuple[str, str]:
     """함정 7 — VRP 음전환의 3상태 판별: (상태, 근거 설명).
 
@@ -159,6 +173,9 @@ def _g1(df, i, row) -> list[str]:
                      f"→ **선행(평온기) 음전환 = 조기경보 후보** (2020·2026 쇼크 2~4주 전 출현 사례, 표본 2)")
             L.append("- 방향 가설: ① 실현변동이 기어오르는데 IV 미반영 (조기경보) "
                      "② 변동성 매도 수급의 IV 억제 ③ 일시적 실현 스파이크의 흔적")
+        if _is_expiry_day(df, i):
+            L.append("- 가드(함정 9): 만기일 — IV·VRP 하락엔 만기 이벤트 프리미엄 소멸 성분 병기 "
+                     "(ΔRV20 무반응 동반이면 무게 ↑)")
         rvf = _col_rising(df, i, "RV_fast")
         if rvf is not None:
             L.append(f"- 교차확인: RV_fast(λ=0.90) 5거래일 {'상승 — 실현변동 재점화 진행 중' if rvf else '하락 — 쇼크 잔향 소멸 국면'}")
@@ -246,6 +263,13 @@ def _g5(df, i, row) -> list[str]:
         L.append(f"- 관측(초안 임계 ±{BASIS_NOTE:.0f}%p): 모델프리가 ATM 대비 {basis:+.1f}%p "
                  f"{'높음 — 스마일/꼬리 프리미엄 두꺼움 후보' if thick else '낮음 — 스마일 평탄/역전 후보'}. "
                  "방향 가설: ① OTM 재가격 (꼬리 보험 수요) ② 스마일 형상 변화 (G2 교차 확인) ③ 산출 방식·시점 차이")
+    if _is_expiry_day(df, i):
+        dvk = row.get("dVK")
+        if _fin(dvk) and dvk < 0:
+            L.append(f"- ⚠ 가드(함정 9): 만기일 VK {dvk:+.2f} — **이벤트 프리미엄 소멸 후보** "
+                     "(2015~ 실증: 만기일 ΔVK 평균 −0.70·음수 71%). 위험 인식 완화로 단정 금지, D+2 반등 경향")
+        else:
+            L.append("- 가드(함정 9): 오늘은 만기일 — VK·VRP 변화에 만기 통과(달력) 효과 병기")
     return L
 
 
@@ -306,6 +330,8 @@ def narrate(df: pd.DataFrame, date=None) -> str:
     if np.isfinite(row["VRP"]) and row["VRP"] < 0:
         st = {"후행": "후행 잔상 후보", "진행중": "쇼크 진행중 (혼재)", "선행": "선행 조기경보 후보"}
         guards.append("VRP 음전환 " + st[vrp_state(df, i)[0]])
+    if _is_expiry_day(df, i):
+        guards.append("만기일 — 이벤트 프리미엄 소멸 후보 (함정 9)")
     L.append(f"- 가드: {' · '.join(guards) if guards else '해당 없음'}")
     L.append("")
 
@@ -318,5 +344,5 @@ def narrate(df: pd.DataFrame, date=None) -> str:
     # ── 각주 ──
     L += ["---",
           "_원칙: 자세(posture) 기술 — 방향 예측·매매 권고 아님. 방향 가설는 병기이며 단정하지 않는다._",
-          "_근거: docs/지표명세서_v0.1.md §7 · docs/해석노트.md 함정 1~8_"]
+          "_근거: docs/지표명세서_v0.1.md §7 · docs/해석노트.md 함정 1~9_"]
     return "\n".join(L)
