@@ -88,16 +88,26 @@ def select_expiries(base: pd.DataFrame, t: DateType) -> tuple[str | None, str | 
 # ──────────────────────────────────────────────
 # G1 — ATM IV
 # ──────────────────────────────────────────────
-def atm_iv(valid: pd.DataFrame, expiry: str, S: float) -> tuple[float, float]:
-    """(ATM_IV, K_atm). 콜·풋 모두 유효한 행사가 중 S 최근접 (U0-6: 없으면 NaN)."""
+def atm_iv_detail(valid: pd.DataFrame, expiry: str, S: float) -> tuple[float, float, float]:
+    """(ATM_IV, K_atm, CP_gap). 콜·풋 모두 유효한 행사가 중 S 최근접 (U0-6: 없으면 NaN).
+
+    CP_gap = |IV_call − IV_put| (동일 ATM 행사가) — 저유동 산출 왜곡 감지 (해석노트 함정 8:
+    2026-07-10 차월 괴리 18.4%p vs 근월 1~4%p 실측).
+    """
     sub = valid[valid["Expiry"] == expiry]
     calls = sub[sub["Type"] == "CALL"].set_index("Strike")["IV"]
     puts = sub[sub["Type"] == "PUT"].set_index("Strike")["IV"]
     common = calls.index.intersection(puts.index)
     if len(common) == 0:
-        return np.nan, np.nan
+        return np.nan, np.nan, np.nan
     k_atm = common[np.abs(common - S).argmin()]
-    return (calls[k_atm] + puts[k_atm]) / 2.0, float(k_atm)
+    return ((calls[k_atm] + puts[k_atm]) / 2.0, float(k_atm),
+            float(abs(calls[k_atm] - puts[k_atm])))
+
+
+def atm_iv(valid: pd.DataFrame, expiry: str, S: float) -> tuple[float, float]:
+    a, k, _ = atm_iv_detail(valid, expiry, S)
+    return a, k
 
 
 # ──────────────────────────────────────────────
@@ -164,6 +174,23 @@ def skew_voladj(
     return ivp - ivc
 
 
+def skew_voladj_legs(
+    valid: pd.DataFrame, expiry: str, S: float, atm: float, t: DateType,
+    k_sigma: float = 0.5,
+) -> tuple[float, float]:
+    """정본 스큐(±0.5σ 스냅)의 두 다리 (IV_put, IV_call) — 귀속 분해용 (해석노트 함정 2)."""
+    if not np.isfinite(atm):
+        return np.nan, np.nan
+    T = remaining_busdays(t, expiry) / 252.0
+    if T <= 0:
+        return np.nan, np.nan
+    sig_sqrt_t = k_sigma * (atm / 100.0) * np.sqrt(T)
+    k_put, k_call = S * np.exp(-sig_sqrt_t), S * np.exp(sig_sqrt_t)
+    sub = valid[valid["Expiry"] == expiry]
+    tol = VOLADJ_TOL_SIGMA * sig_sqrt_t * S
+    return _iv_near(sub, "PUT", k_put, tol), _iv_near(sub, "CALL", k_call, tol)
+
+
 # ──────────────────────────────────────────────
 # G4 — 미결제 분포
 # ──────────────────────────────────────────────
@@ -210,27 +237,35 @@ def compute_day(raw: pd.DataFrame, S: float, t: DateType) -> tuple[dict, dict]:
     if front is None or not np.isfinite(S):
         # 만기 판정 불가 또는 지수 결측 — IV 계열 전부 NaN (U0-5/U0-6)
         for k in ("ATM_IV", "K_atm", "Skew", "Skew_9010", "Skew_9505", "Skew_vol1s",
-                  "Skew_vol05s", "Skew_vol05s_i",
+                  "Skew_vol05s", "Skew_vol05s_i", "IV_put05s", "IV_call05s",
+                  "CPgap_front", "ATM_IV_next", "CPgap_next",
                   "TS_diff", "TS_ratio"):
             row[k] = np.nan
         row.update(oi_metrics(base, front, S))
         return row, q
 
-    atm, k_atm = atm_iv(valid, front, S)
+    atm, k_atm, cpgap_f = atm_iv_detail(valid, front, S)
     row["ATM_IV"], row["K_atm"] = atm, k_atm
+    row["CPgap_front"] = cpgap_f  # 근월 ATM C/P 괴리 — 함정 8 게이트의 비교 기준
     row["Front_DTE"] = remaining_busdays(t, front)  # 잔존 거래일 — TS/근월 IV 해석 컨텍스트 (해석노트 함정 5)
     row["Skew_9010"] = skew_fixed(valid, front, S, 0.90, 1.10)
     row["Skew_9505"] = skew_fixed(valid, front, S, 0.95, 1.05)
     row["Skew_vol1s"] = skew_voladj(valid, front, S, atm, t, k_sigma=1.0)
-    row["Skew_vol05s"] = skew_voladj(valid, front, S, atm, t, k_sigma=0.5)
+    ivp05, ivc05 = skew_voladj_legs(valid, front, S, atm, t, k_sigma=0.5)
+    row["IV_put05s"], row["IV_call05s"] = ivp05, ivc05  # 정본 스큐 다리 (함정 2 귀속 분해)
+    row["Skew_vol05s"] = ivp05 - ivc05  # = skew_voladj(±0.5σ 스냅) 와 동일 정의
     row["Skew_vol05s_i"] = skew_voladj(valid, front, S, atm, t, k_sigma=0.5, interp=True)
     row["Skew"] = row["Skew_vol05s"]  # ★ 정본 별칭 (2026-07-16 Kane 확정) — Layer B/C 는 이 컬럼 사용
 
     if nxt is not None:
-        atm_n, _ = atm_iv(valid, nxt, S)
+        atm_n, _, cpgap_n = atm_iv_detail(valid, nxt, S)
+        row["ATM_IV_next"] = atm_n      # TS 귀속 분해용 (어느 다리가 움직였나)
+        row["CPgap_next"] = cpgap_n     # 차월 ATM C/P 괴리 — 함정 8 게이트
         row["TS_diff"] = atm_n - atm
         row["TS_ratio"] = atm_n / atm if np.isfinite(atm) and atm > 0 else np.nan
     else:
+        row["ATM_IV_next"] = np.nan
+        row["CPgap_next"] = np.nan
         row["TS_diff"] = np.nan
         row["TS_ratio"] = np.nan
 
@@ -244,12 +279,9 @@ def compute_day(raw: pd.DataFrame, S: float, t: DateType) -> tuple[dict, dict]:
 GAP_GUARD_DAYS = 12  # 직전 행과 12일(달력) 초과 벌어지면 Δ 계열 무효 (수집 갭 오염 방지).
                      # 연휴(추석 최대 8일 실측)는 갭 아님 — normalize.GAP_DAYS 와 동일 근거 (2026-07-17)
 
-RV_FAST_LAMBDA = 0.90  # RV_fast (EWMA) 감쇠 계수 — 평균 가중 연령 9.0일 = 균등창20(9.5일) 동급.
-                       # 조기경보 전용 보조 지표. 정본은 RV20 (명세서 G1, 해석노트 함정 7, 2026-07-18)
-
 
 def postprocess(df: pd.DataFrame, k200: pd.DataFrame | None = None) -> pd.DataFrame:
-    """롤 플래그, ΔATM(롤일 결측), 스큐 정규화, RV20/VRP(+RV_fast/VRP_fast), ΔOI, VK 파생.
+    """롤 플래그, ΔATM(롤일 결측), 스큐 정규화, RV20/VRP, ΔOI, VK 파생.
 
     Args:
         df:   compute_day 행들의 DataFrame (Date 포함)
@@ -265,6 +297,11 @@ def postprocess(df: pd.DataFrame, k200: pd.DataFrame | None = None) -> pd.DataFr
 
     df["dATM_IV"] = df["ATM_IV"].diff()
     df.loc[df["roll_flag"] | gap, "dATM_IV"] = np.nan  # 월물 불연속(G1) + 갭
+    # 귀속 분해용 Δ (함정 2·G3) — 동일 마스킹. 구컬럼 데이터엔 없을 수 있어 존재 시에만
+    for c in ("IV_put05s", "IV_call05s", "ATM_IV_next"):
+        if c in df.columns:
+            df["d" + c] = df[c].diff()
+            df.loc[df["roll_flag"] | gap, "d" + c] = np.nan
 
     for c in ("Skew", "Skew_9010", "Skew_9505", "Skew_vol1s", "Skew_vol05s", "Skew_vol05s_i"):
         df[c + "_norm"] = df[c] / df["ATM_IV"]
@@ -276,16 +313,9 @@ def postprocess(df: pd.DataFrame, k200: pd.DataFrame | None = None) -> pd.DataFr
         rv = (logret.rolling(20).std() * np.sqrt(252) * 100).rename("RV20")
         rv_map = pd.Series(rv.values, index=k["Date"].values)
         df["RV20"] = df["Date"].map(rv_map)
-        # RV_fast — EWMA λ=0.90, RiskMetrics 제로평균 (조기경보 보조, 2026-07-18).
-        # 주의: 지수 감쇠엔 컷오프가 없어 쇼크 후행 구간이 RV20 보다 길 수 있음 (EWMA 역설).
-        v_fast = (logret**2).ewm(alpha=1 - RV_FAST_LAMBDA, adjust=True, min_periods=20).mean()
-        rvf = (np.sqrt(v_fast) * np.sqrt(252) * 100).rename("RV_fast")
-        df["RV_fast"] = df["Date"].map(pd.Series(rvf.values, index=k["Date"].values))
     else:
         df["RV20"] = np.nan
-        df["RV_fast"] = np.nan
     df["VRP"] = df["ATM_IV"] - df["RV20"]
-    df["VRP_fast"] = df["ATM_IV"] - df["RV_fast"]
 
     df["dOI_total_pct"] = df["OI_total"].pct_change() * 100
     df.loc[gap, "dOI_total_pct"] = np.nan
