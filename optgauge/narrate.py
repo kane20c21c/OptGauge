@@ -318,5 +318,5 @@ def narrate(df: pd.DataFrame, date=None) -> str:
     # ── 각주 ──
     L += ["---",
           "_원칙: 자세(posture) 기술 — 방향 예측·매매 권고 아님. 해석 후보는 병기이며 단정하지 않는다._",
-          "_근거: docs/지표명세서_v0.1.md §7 · docs/해석노트.md 함정 1~7_"]
+          "_근거: docs/지표명세서_v0.1.md §7 · docs/해석노트.md 함정 1~8_"]
     return "\n".join(L)
