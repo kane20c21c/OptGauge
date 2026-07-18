@@ -69,10 +69,13 @@
 
   <div class="canvas">
     <!-- 사이드바 -->
-    <div class="wf side rel"><span class="tag g">기존 사이드바</span>
-      <div class="item">보유·손익</div><div class="item">매매일지</div>
-      <div class="item">리스크</div><div class="item">다각도분석</div>
-      <div class="item on">옵션 게이지 ◀ 신규</div><div class="item">Paper</div>
+    <div class="wf side rel"><span class="tag g">사이드바 (Kane 지정 순서)</span>
+      <div class="item">보유현황</div><div class="item">실현손익</div>
+      <div class="item">Lot전체</div><div class="item">투자일지</div>
+      <hr style="border:none;border-top:1px solid #cfd8dc;margin:6px 2px">
+      <div class="item">V.KOSPI</div><div class="item on">옵션 게이지 ◀ 신규</div>
+      <hr style="border:none;border-top:1px solid #cfd8dc;margin:6px 2px">
+      <div class="item">다각도 분석</div><div class="item">한국포트</div>
     </div>
 
     <!-- 메인 -->
@@ -93,8 +96,19 @@
         </div>
       </div>
 
-      <!-- ② 컨트롤 -->
-      <div class="wf controls rel"><span class="tag">② 기간·날짜</span>
+      <!-- ② 클로드 해석 — 로드 시 자동 실행 -->
+      <div class="wf v2 card rel"><span class="tag b">② 클로드 해석 — 페이지 로드 시 자동: "오늘의 posture 요약" (일 1회 캐시)</span>
+        <div class="resp" style="color:#546e7a">🤖 <b>오늘의 posture 요약</b> (자동): "파생시장은 <b>하락·백워·VK고↘</b> 칸
+          9거래일째. VRP 음전환·백워데이션은 만기(7/9) 효과를 벗겨내도 지속 중이며, VK 는 6월 고점 대비
+          수축 4일째. PCR 하락은 만기 리셋 성분 혼재로 판단 보류…" — 관측 인용 + 방향 가설 병기 형식</div>
+        <div class="chips" style="margin-top:10px"><span class="chip">만기 효과 벗겨내면?</span>
+          <span class="chip">지난 만기 대비 뭐가 달라?</span><span class="chip">이 상태의 과거 사례는?</span>
+          <span class="chip">G2 스큐 분해해줘</span></div>
+        <div class="input">추가 질문 입력… (시스템 프롬프트 = 그날 보고 전문 + 해석노트 함정 1~9 요약 — 단정 금지 원칙 주입)</div>
+      </div>
+
+      <!-- ③ 컨트롤 -->
+      <div class="wf controls rel"><span class="tag">③ 기간·날짜</span>
         <span class="btn">1M</span><span class="btn on">3M</span><span class="btn">6M</span>
         <span class="btn">1Y</span><span class="btn">전체</span>
         <span class="btn v2" style="border-style:dashed; color:#1976d2">📅 과거일 보기 (v2)</span>
@@ -102,7 +116,7 @@
       </div>
 
       <!-- ③ 차트 스택 -->
-      <div class="wf panel rel"><span class="tag">③ 게이지 스택 — x축 동기화 · 만기 점선 · 드래그 줌</span>
+      <div class="wf panel rel"><span class="tag">④ 게이지 스택 — x축 동기화 · 만기 점선 · 드래그 줌</span>
         <div class="ptitle">KOSPI200 (캔들) <span class="cur">1080.36 · −7.18%</span></div>
         <svg viewBox="0 0 800 54">
           <line x1="590" y1="2" x2="590" y2="52" stroke="#1976d2" stroke-dasharray="3 3"/>
@@ -164,7 +178,7 @@
       </div>
 
       <!-- ④ 상태 밴드 -->
-      <div class="wf band rel"><span class="tag">④ 8칸 상태 밴드 — 차트와 x축 공유, 클릭 시 해당일로 (v2)</span>
+      <div class="wf band rel"><span class="tag">⑤ 8칸 상태 밴드 — 차트와 x축 공유, 클릭 시 해당일로 (v2)</span>
         <div class="bandbar">
           <div style="width:18%;background:#c8e6c9"></div><div style="width:7%;background:#ffcdd2"></div>
           <div style="width:12%;background:#c8e6c9"></div><div style="width:21%;background:#ef9a9a"></div>
@@ -173,14 +187,6 @@
         </div>
         <div class="bandlab"><span>4월</span><span>5월</span><span>6월</span><span>7월</span></div>
         <div class="note" style="margin-top:4px">색 = 구조 상태(백워×VK) 심각도 · 진한 빨강 = 하락·백워·VK고 군집</div>
-      </div>
-
-      <!-- ⑤ 클로드 해석 (v2) -->
-      <div class="wf v2 card rel"><span class="tag b">⑤ 클로드 해석 (v2) — 다각도분석 ask_claude 패턴</span>
-        <div class="chips"><span class="chip">오늘 자세 요약해줘</span><span class="chip">만기 효과 벗겨내면?</span>
-          <span class="chip">지난 만기 대비 뭐가 달라?</span><span class="chip">이 상태의 과거 사례는?</span></div>
-        <div class="input">질문 입력… (시스템 프롬프트 = 그날 보고 전문 + 해석노트 함정 1~9 요약 — 단정 금지 원칙 주입)</div>
-        <div class="resp">클로드 응답 영역 — 관측 사실 인용 + 방향 가설 병기 형식</div>
       </div>
 
       <!-- ⑥ v3 -->
@@ -192,10 +198,10 @@
 
   <div class="callouts">
     <div><span class="n">①</span><b>상태 카드</b> — /api/optgauge/summary. 복합 v0.2 상태·화살표·지속일·플래그·가드 + 스탯 타일 4개. 매일 아침 메일 요약과 동일 원천.</div>
-    <div><span class="n">②</span><b>기간 버튼</b> — 프런트에서 슬라이스 (전체 데이터 1회 로드, /api/optgauge/series). 과거일 보기(v2)는 그날의 상태 카드·보고를 재현 (/api/optgauge/report?date=).</div>
-    <div><span class="n">③</span><b>게이지 스택</b> — 아침 메일과 동일 양식 (캔들 상승빨강/하락파랑, TS 막대, VRP 음영, 만기 점선, 함정8 ◆). x축 동기화 드래그 줌.</div>
-    <div><span class="n">④</span><b>상태 밴드</b> — /api/optgauge/states. 레짐 내비게이션: 위기 칸 군집이 한눈에. 클릭 → 과거일 보기 연동 (v2).</div>
-    <div><span class="n">⑤</span><b>클로드 해석</b> — POST /api/optgauge/ask → core.claude.ask_claude (Opus/Sonnet 폴백). 데이터는 전부 서버가 주입 — 클로드는 해석만.</div>
+    <div><span class="n">②</span><b>클로드 해석 (Kane 지정: 상태 카드 직하 + 자동 실행)</b> — 로드 시 POST /api/optgauge/ask (preset=posture_summary) 자동 호출 → core.claude.ask_claude (Opus/Sonnet 폴백). 같은 날짜는 서버 캐시 재사용 (일 1회 호출). 추가 질문은 칩/입력으로.</div>
+    <div><span class="n">③</span><b>기간 버튼</b> — 프런트에서 슬라이스 (전체 데이터 1회 로드, /api/optgauge/series). 과거일 보기(v2)는 그날의 상태 카드·보고·posture 요약을 재현 (/api/optgauge/report?date=).</div>
+    <div><span class="n">④</span><b>게이지 스택</b> — 아침 메일과 동일 양식 (캔들 상승빨강/하락파랑, TS 막대, VRP 음영, 만기 점선, 함정8 ◆). x축 동기화 드래그 줌.</div>
+    <div><span class="n">⑤</span><b>상태 밴드</b> — /api/optgauge/states. 레짐 내비게이션: 위기 칸 군집이 한눈에. 클릭 → 과거일 보기 연동 (v2).</div>
     <div style="margin-top:8px; color:#90a4a0"><b>데이터 흐름</b>: LLV 일일 잡(수집→OptGauge 수식 호출→data/indicators/gauge_*.parquet 저장) → StockPortfolio 는 읽기 전용 · OptGauge narrate 는 메일/보고 재현 담당.</div>
   </div>
 </div>
