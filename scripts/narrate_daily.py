@@ -29,6 +29,37 @@ CHART_WEEKS = 5  # 주 정렬 창 (Kane 지정 2026-07-18): 4주 전 월요일 ~
 # 색 규칙: 기존 차트 컨벤션 (UP 빨강 / DOWN 파랑 / NEUTRAL 회색, RV_fast = λ=0.90 보라)
 C_IV, C_RV, C_RVF = "#ef5350", "#1976D2", "#7B1FA2"
 C_NEUT, C_ALERT, C_SKEW, C_S = "#666666", "#E8710A", "#00897B", "#333333"
+C_UP, C_DOWN = "#e34948", "#2a78d6"  # 캔들·막대 K-관례 (regime_2026 차트 양식, Kane 2026-07-18)
+
+
+def _load_index_ohlc(ticker: str):
+    """LLV 지수 parquet (OHLC) — 접근 불가 시 None (종가 라인 폴백)."""
+    try:
+        from optgauge.data_access import load_index
+        return load_index(ticker)
+    except Exception:
+        return None
+
+
+def _candle_fig(df, i, ticker: str, fallback_col: str, name: str) -> go.Figure:
+    """캔들 차트 (상승 빨강/하락 파랑) — OHLC 부재 시 종가 라인 폴백."""
+    start, _ = _week_range(df.at[i, "Date"])
+    ohlc = _load_index_ohlc(ticker)
+    fig = go.Figure()
+    if ohlc is not None:
+        o = ohlc[(ohlc["Date"] >= start) & (ohlc["Date"] <= df.at[i, "Date"])]
+        fig.add_trace(go.Candlestick(
+            x=o["Date"], open=o["Open"], high=o["High"], low=o["Low"], close=o["Close"],
+            increasing_line_color=C_UP, increasing_fillcolor=C_UP,
+            decreasing_line_color=C_DOWN, decreasing_fillcolor=C_DOWN,
+            increasing_line_width=1, decreasing_line_width=1, name=name))
+        fig.update_layout(xaxis_rangeslider_visible=False)
+    else:
+        d = _window(df, i)
+        fig.add_trace(go.Scatter(x=d["Date"], y=d[fallback_col], name=name,
+                                 line=dict(color=C_S, width=1.6), connectgaps=False,
+                                 hovertemplate="%{y:.2f}<extra>" + name + "</extra>"))
+    return fig
 
 _first_chart = True
 
@@ -92,11 +123,8 @@ def _axis_5w(fig: go.Figure, df: pd.DataFrame, i: int) -> None:
 
 
 def fig_kospi(df, i):
-    d = _window(df, i)
-    fig = go.Figure(go.Scatter(x=d["Date"], y=d["S"], name="KOSPI200",
-                               line=dict(color=C_S, width=1.6), connectgaps=False,
-                               hovertemplate="%{y:.2f}<extra>KOSPI200</extra>"))
-    _mini_layout(fig, 200, legend=False)
+    fig = _candle_fig(df, i, "KOSPI200", "S", "KOSPI200")
+    _mini_layout(fig, 210, legend=False)
     _axis_5w(fig, df, i)
     return fig
 
@@ -143,9 +171,10 @@ def fig_g2(df, i):
 def fig_g3(df, i):
     d = _window(df, i)
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=d["Date"], y=d["TS_diff"], name="TS diff",
-                             line=dict(color=C_NEUT, width=1.6), connectgaps=False,
-                             hovertemplate="%{y:.2f}%p<extra>TS diff</extra>"))
+    bar_colors = np.where(d["TS_diff"] >= 0, C_UP, C_DOWN)
+    fig.add_trace(go.Bar(x=d["Date"], y=d["TS_diff"], name="TS diff",
+                         marker_color=bar_colors, marker_line_width=0,
+                         hovertemplate="%{y:.2f}%p<extra>TS diff</extra>"))
     if "CPgap_next" in d.columns:
         gate = d[d["CPgap_next"] >= CPGAP_GATE]
         if len(gate):
@@ -172,11 +201,8 @@ def fig_g4(df, i):
 
 
 def fig_g5(df, i):
-    d = _window(df, i)
-    fig = go.Figure(go.Scatter(x=d["Date"], y=d["VK"], name="VKOSPI",
-                               line=dict(color=C_NEUT, width=1.6), connectgaps=False,
-                               hovertemplate="%{y:.2f}<extra>VKOSPI</extra>"))
-    _mini_layout(fig, 200, legend=False)
+    fig = _candle_fig(df, i, "VKOSPI", "VK", "VKOSPI")
+    _mini_layout(fig, 210, legend=False)
     _axis_5w(fig, df, i)
     return fig
 
