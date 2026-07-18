@@ -320,8 +320,15 @@ def narrate(df: pd.DataFrame, date=None) -> str:
     L += ["## 요약", f"- {_headline(df, i, row)}", f"- 플래그: {_summary_flags(row, METRICS)}"]
     st, sd = row.get("State8"), row.get("Struct_days")
     if isinstance(st, str) and st:
-        note = " — 급락일의 76%가 이 칸 (posture 지문, 방향 예측 아님)" if st == "하락·백워·VK고" else ""
-        L.append(f"- 상태(복합 v0.2): **{st}** · 구조 {_f(sd, '{:.0f}')}거래일째{note}")
+        tr, td = row.get("VK_trend"), row.get("VK_trend_days")
+        arrow = {"확장": "↗", "수축": "↘"}.get(tr, "")
+        trtxt = f" · VK {tr} {_f(td, '{:.0f}')}일째" if isinstance(tr, str) and tr else ""
+        note = ""
+        if st == "하락·백워·VK고":
+            note = " — 위기 한복판형 급락 지문 칸 (급락일의 57%, posture 지문 — 방향 예측 아님)"
+        elif st == "하락·백워·VK저":
+            note = " — 위기 초입형 급락 지문 칸 (VK 20~30 급락들 — 2020-02-24·2024-08-02 계열)"
+        L.append(f"- 상태(복합 v0.2): **{st}{arrow}** · 구조 {_f(sd, '{:.0f}')}거래일째{trtxt}{note}")
     guards = []
     dsr = _days_since_roll(df, i)
     if dsr is not None and dsr <= ROLL_GUARD_DAYS:
