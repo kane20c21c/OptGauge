@@ -318,6 +318,10 @@ def narrate(df: pd.DataFrame, date=None) -> str:
 
     # ── 요약 ──
     L += ["## 요약", f"- {_headline(df, i, row)}", f"- 플래그: {_summary_flags(row, METRICS)}"]
+    st, sd = row.get("State8"), row.get("Struct_days")
+    if isinstance(st, str) and st:
+        note = " — 급락일의 76%가 이 칸 (posture 지문, 방향 예측 아님)" if st == "하락·백워·VK고" else ""
+        L.append(f"- 상태(복합 v0.2): **{st}** · 구조 {_f(sd, '{:.0f}')}거래일째{note}")
     guards = []
     dsr = _days_since_roll(df, i)
     if dsr is not None and dsr <= ROLL_GUARD_DAYS:
