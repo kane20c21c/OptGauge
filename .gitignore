@@ -7,3 +7,6 @@ notebooks/.ipynb_checkpoints/
 .pytest_cache/
 venv/
 .venv/
+
+# Layer C 일일 산출물 (매일 덮어쓰기 — 커밋 제외)
+output/daily_report.md
