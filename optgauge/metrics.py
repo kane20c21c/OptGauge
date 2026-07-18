@@ -279,6 +279,9 @@ def compute_day(raw: pd.DataFrame, S: float, t: DateType) -> tuple[dict, dict]:
 GAP_GUARD_DAYS = 12  # 직전 행과 12일(달력) 초과 벌어지면 Δ 계열 무효 (수집 갭 오염 방지).
                      # 연휴(추석 최대 8일 실측)는 갭 아님 — normalize.GAP_DAYS 와 동일 근거 (2026-07-17)
 
+RV_FAST_LAMBDA = 0.90  # RV_fast (EWMA) 감쇠 계수 — 평균 가중 연령 9.0일 = 균등창20(9.5일) 동급.
+                       # 조기경보 전용 보조 지표. 정본은 RV20 (명세서 G1, 해석노트 함정 7, 2026-07-18)
+
 
 def postprocess(df: pd.DataFrame, k200: pd.DataFrame | None = None) -> pd.DataFrame:
     """롤 플래그, ΔATM(롤일 결측), 스큐 정규화, RV20/VRP, ΔOI, VK 파생.
@@ -313,9 +316,16 @@ def postprocess(df: pd.DataFrame, k200: pd.DataFrame | None = None) -> pd.DataFr
         rv = (logret.rolling(20).std() * np.sqrt(252) * 100).rename("RV20")
         rv_map = pd.Series(rv.values, index=k["Date"].values)
         df["RV20"] = df["Date"].map(rv_map)
+        # RV_fast — EWMA λ=0.90, RiskMetrics 제로평균 (조기경보 보조, 2026-07-18).
+        # 주의: 지수 꼬리 특성상 쇼크 후행 구간이 RV20 보다 길 수 있음 (EWMA 역설 — 해석노트 함정 7).
+        v_fast = (logret**2).ewm(alpha=1 - RV_FAST_LAMBDA, adjust=True, min_periods=20).mean()
+        rvf = (np.sqrt(v_fast) * np.sqrt(252) * 100).rename("RV_fast")
+        df["RV_fast"] = df["Date"].map(pd.Series(rvf.values, index=k["Date"].values))
     else:
         df["RV20"] = np.nan
+        df["RV_fast"] = np.nan
     df["VRP"] = df["ATM_IV"] - df["RV20"]
+    df["VRP_fast"] = df["ATM_IV"] - df["RV_fast"]
 
     df["dOI_total_pct"] = df["OI_total"].pct_change() * 100
     df.loc[gap, "dOI_total_pct"] = np.nan
