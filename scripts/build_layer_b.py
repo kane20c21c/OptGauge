@@ -24,7 +24,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from optgauge.normalize import add_layer_b, FLAG_HIGH
 
-METRICS = ["ATM_IV", "Skew", "TS_diff", "PCR_OI_all", "VK", "VRP"]
+METRICS = ["ATM_IV", "Skew", "TS_diff", "PCR_OI_all", "VK", "VRP",
+           "VRP_fast"]  # 보조 (EWMA λ=0.90 조기경보 — 명세서 G1, 2026-07-18 Kane 편입 승인)
 WINDOWS = (60, 120, 250)
 
 
