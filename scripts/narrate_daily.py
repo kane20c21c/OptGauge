@@ -22,8 +22,9 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from optgauge.narrate import narrate, CPGAP_GATE
+from optgauge.metrics import second_thursday
 
-CHART_DAYS = 30  # 게이지별 미니차트 창 (Kane 지정, 2026-07-18)
+CHART_WEEKS = 5  # 주 정렬 창 (Kane 지정 2026-07-18): 4주 전 월요일 ~ 이번 주 금요일 (25 거래슬롯)
 
 # 색 규칙: 기존 차트 컨벤션 (UP 빨강 / DOWN 파랑 / NEUTRAL 회색, RV_fast = λ=0.90 보라)
 C_IV, C_RV, C_RVF = "#ef5350", "#1976D2", "#7B1FA2"
@@ -53,8 +54,41 @@ def _div(fig: go.Figure) -> str:
                        default_width="100%", default_height=f"{fig.layout.height}px")
 
 
+def _week_range(report_date: pd.Timestamp) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """(4주 전 월요일, 이번 주 금요일) — 보고 요일과 무관하게 축은 항상 주 단위 고정."""
+    mon = report_date - pd.Timedelta(days=int(report_date.weekday()))
+    return mon - pd.Timedelta(weeks=CHART_WEEKS - 1), mon + pd.Timedelta(days=4)
+
+
 def _window(df: pd.DataFrame, i: int) -> pd.DataFrame:
-    return df.iloc[max(i - CHART_DAYS + 1, 0):i + 1]
+    start, _ = _week_range(df.at[i, "Date"])
+    d = df[(df["Date"] >= start) & (df["Date"] <= df.at[i, "Date"])]
+    return d
+
+
+def _expiries_in(start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]:
+    """창 안의 옵션 만기일(매월 둘째 목요일, U0-4) 목록."""
+    out, cur = [], pd.Timestamp(start.year, start.month, 1)
+    while cur <= end:
+        e = pd.Timestamp(second_thursday(f"{cur.year}{cur.month:02d}"))
+        if start <= e <= end:
+            out.append(e)
+        cur = (cur + pd.offsets.MonthBegin(1)).normalize()
+    return out
+
+
+def _axis_5w(fig: go.Figure, df: pd.DataFrame, i: int) -> None:
+    """x축을 주 정렬 5주 고정창으로: 월요일 눈금 5개 + 만기일 세로 점선."""
+    start, end = _week_range(df.at[i, "Date"])
+    fig.update_xaxes(
+        range=[start - pd.Timedelta(hours=12), end + pd.Timedelta(hours=12)],
+        tick0=start, dtick=7 * 86400000, tickformat="%m/%d",
+    )
+    for e in _expiries_in(start, end):
+        fig.add_vline(x=e, line=dict(color="#1976D2", width=1, dash="dash"))
+        fig.add_annotation(x=e, y=1, yref="paper", yanchor="top", xanchor="left",
+                           xshift=3, text="만기", showarrow=False,
+                           font=dict(size=9, color="#1976D2"))
 
 
 def fig_kospi(df, i):
@@ -63,6 +97,7 @@ def fig_kospi(df, i):
                                line=dict(color=C_S, width=1.6), connectgaps=False,
                                hovertemplate="%{y:.2f}<extra>KOSPI200</extra>"))
     _mini_layout(fig, 200, legend=False)
+    _axis_5w(fig, df, i)
     return fig
 
 
@@ -91,6 +126,7 @@ def fig_g1(df, i):
                                  connectgaps=False), 2, 1)
     fig.add_hline(y=0, row=2, col=1, line=dict(color="#999", width=0.7, dash="dash"))
     _mini_layout(fig, 320, legend=True)
+    _axis_5w(fig, df, i)
     return fig
 
 
@@ -100,6 +136,7 @@ def fig_g2(df, i):
                                line=dict(color=C_SKEW, width=1.6), connectgaps=False,
                                hovertemplate="%{y:.2f}%p<extra>Skew</extra>"))
     _mini_layout(fig, 200, legend=False)
+    _axis_5w(fig, df, i)
     return fig
 
 
@@ -119,6 +156,7 @@ def fig_g3(df, i):
                 customdata=gate["CPgap_next"]))
     fig.add_hline(y=0, line=dict(color="#999", width=0.7, dash="dash"))
     _mini_layout(fig, 200, legend=False)
+    _axis_5w(fig, df, i)
     return fig
 
 
@@ -129,6 +167,7 @@ def fig_g4(df, i):
                                hovertemplate="%{y:.2f}<extra>PCR</extra>"))
     fig.add_hline(y=1.0, line=dict(color="#999", width=0.7, dash="dash"))
     _mini_layout(fig, 200, legend=False)
+    _axis_5w(fig, df, i)
     return fig
 
 
@@ -138,6 +177,7 @@ def fig_g5(df, i):
                                line=dict(color=C_NEUT, width=1.6), connectgaps=False,
                                hovertemplate="%{y:.2f}<extra>VKOSPI</extra>"))
     _mini_layout(fig, 200, legend=False)
+    _axis_5w(fig, df, i)
     return fig
 
 

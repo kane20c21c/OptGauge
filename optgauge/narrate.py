@@ -1,7 +1,7 @@
 """Layer C — 서술 (지표명세서 §7).
 
 원칙 (해석노트 머리글): 지표는 방향 예측이 아니라 자세(posture) 기술.
-형식: 관측 사실 (지표·백분위) + 해석 후보 ①②③ 병기. 단정·매매 권고 금지.
+형식: 관측 사실 (지표·백분위) + 방향 가설 ①②③ 병기. 단정·매매 권고 금지.
 이 모듈은 해석노트 함정 1~7 을 자동 가드로 번역한 규칙 엔진이다 —
 각 가드의 근거는 docs/해석노트.md 의 해당 함정 번호를 따른다.
 """
@@ -138,7 +138,7 @@ def _g1(df, i, row) -> list[str]:
         div = row.get("dATM_IV")
         if np.isfinite(ret) and abs(ret) >= SHOCK_RET and np.isfinite(div) and abs(div) < 2.0:
             L.append(f"- 관측: 지수 {ret:+.1f}% 급변에 ΔIV {div:+.2f}%p — 변동 대비 IV 반응 미미. "
-                     "해석 후보: ① 레벨 포화 레짐 지문 ② 이미 가격에 반영된 이벤트 ③ 익일 재가격 대기")
+                     "방향 가설: ① 레벨 포화 레짐 지문 ② 이미 가격에 반영된 이벤트 ③ 익일 재가격 대기")
 
     vrp = row["VRP"]
     if np.isfinite(vrp) and vrp < 0:
@@ -147,17 +147,17 @@ def _g1(df, i, row) -> list[str]:
         if state == "후행":
             L.append(f"- ⚠ 가드(함정 7): VRP 음전환 {streak}거래일째 — {why} "
                      f"→ **후행 잔상 후보** (RV 윈도의 구조적 꼬리, 정보가치 제한)")
-            L.append("- 해석 후보: ① 쇼크 잔상 (계산식 구조 — 신규 정보 아님) "
+            L.append("- 방향 가설: ① 쇼크 잔상 (계산식 구조 — 신규 정보 아님) "
                      "② 실현변동 재점화 (RV_fast 재상승 여부로 교차 확인) ③ IV 의 위험 저평가 지속")
         elif state == "진행중":
             L.append(f"- ⚠ 가드(함정 7): VRP 음전환 {streak}거래일째 — {why} "
                      f"→ **쇼크 진행/직후 구간** (IV 가 실현변동을 미추종 — 잔상·경보 성분 혼재, 단정 금지)")
-            L.append("- 해석 후보: ① 실현변동이 IV 를 앞지르는 중 (보험료 과소) "
+            L.append("- 방향 가설: ① 실현변동이 IV 를 앞지르는 중 (보험료 과소) "
                      "② 쇼크 성분의 기계적 잔향 병존 ③ IV 재가격 대기 (직후 수렴 여부 관찰)")
         else:
             L.append(f"- ⚠ 가드(함정 7): VRP 음전환 {streak}거래일째 — {why} "
                      f"→ **선행(평온기) 음전환 = 조기경보 후보** (2020·2026 쇼크 2~4주 전 출현 사례, 표본 2)")
-            L.append("- 해석 후보: ① 실현변동이 기어오르는데 IV 미반영 (조기경보) "
+            L.append("- 방향 가설: ① 실현변동이 기어오르는데 IV 미반영 (조기경보) "
                      "② 변동성 매도 수급의 IV 억제 ③ 일시적 실현 스파이크의 흔적")
         rvf = _col_rising(df, i, "RV_fast")
         if rvf is not None:
@@ -169,7 +169,7 @@ def _g1(df, i, row) -> list[str]:
 
 def _g2(df, i, row) -> list[str]:
     L = [f"### G2 — 스큐 (풋−콜 IV 차 — 하방 보험의 상대 가격, vol-조정 ±0.5σ){_flag(row, 'Skew', True)}"]
-    L.append(f"- Skew **{_f(row['Skew'])}%p** ({_pcts(row, 'Skew')}) · norm {_f(row.get('Skew_norm'))}")
+    L.append(f"- Skew **{_f(row['Skew'])}%p** ({_pcts(row, 'Skew')}) · 스큐의 상대적 크기 {_f(row.get('Skew_norm'))} (Skew÷ATM IV — 레짐 간 비교용)")
     z = row.get("Skew__Z")
     if _fin(z) and abs(z) >= 1.5:
         d = "확대" if z > 0 else "축소"
@@ -187,7 +187,7 @@ def _g2(df, i, row) -> list[str]:
                      ("콜IV 하락"): "상방 기대 철회 후보"}
             key = lead.split(" 주도")[0]
             extra = " ③ 기계적 평탄화 (전체 IV 급등 동반)" if (_fin(div) and abs(div) >= 5.0) else ""
-            L.append(f"- 해석 후보: ① {cands.get(key, '주도 다리 재확인 필요')} ② 풋 공급/수급 요인 (가격만으로 판별 불가){extra}")
+            L.append(f"- 방향 가설: ① {cands.get(key, '주도 다리 재확인 필요')} ② 풋 공급/수급 요인 (가격만으로 판별 불가){extra}")
         else:
             L.append(f"- ⚠ 가드(함정 2): 스큐 {d} 급변 — 귀속 분해 필요 (풋IV 주도 / 콜IV 주도 / "
                      "풋 공급 / 기계적 평탄화 — 4경로가 반대 해석). 분해 컬럼(dIV_put05s/dIV_call05s)은 재빌드 후 가용")
@@ -212,7 +212,7 @@ def _g3(df, i, row) -> list[str]:
             leg = "근월" if abs(dn) >= abs(dx) else "차월"
             L.append(f"- 귀속(함정 5·8): Δ근월 {dn:+.2f} / Δ차월 {dx:+.2f} → TS 변화는 **{leg} 다리 주도** "
                      f"({'만기근접·감마 계열 점검' if leg == '근월' else '차월 유동성·괴리 게이트 점검'})")
-        L.append("- 해석 후보 (TS 급변): ① 단기 스트레스 재가격 (백워데이션 방향이면) "
+        L.append("- 방향 가설 (TS 급변): ① 단기 스트레스 재가격 (백워데이션 방향이면) "
                  "② 만기근접 기계 효과 (함정 5) ③ 차월 저유동 산출 왜곡 (함정 8 게이트 확인)")
     return L
 
@@ -237,7 +237,7 @@ def _g4(df, i, row) -> list[str]:
 
 
 def _g5(df, i, row) -> list[str]:
-    L = [f"### G5 — VKOSPI (거래소 공식 모델프리 변동성지수 — ATM IV 와의 괴리는 스마일 정보){_flag(row, 'VK', True)}"]
+    L = [f"### G5 — VKOSPI (거래소 공식 모델프리 변동성지수 — ATM IV 와의 괴리 = OTM 꼬리 보험료의 두께){_flag(row, 'VK', True)}"]
     L.append(f"- VK **{_f(row['VK'])}** ({_pcts(row, 'VK')}) · ΔVK {_f(row.get('dVK'), '{:+.2f}')} · "
              f"basis(VK−ATM) {_f(row.get('VK_basis'), '{:+.2f}')}%p (모델프리 vs ATM — 스마일 정보)")
     basis = row.get("VK_basis")
@@ -245,7 +245,7 @@ def _g5(df, i, row) -> list[str]:
         thick = basis > 0
         L.append(f"- 관측(초안 임계 ±{BASIS_NOTE:.0f}%p): 모델프리가 ATM 대비 {basis:+.1f}%p "
                  f"{'높음 — 스마일/꼬리 프리미엄 두꺼움 후보' if thick else '낮음 — 스마일 평탄/역전 후보'}. "
-                 "해석 후보: ① OTM 재가격 (꼬리 보험 수요) ② 스마일 형상 변화 (G2 교차 확인) ③ 산출 방식·시점 차이")
+                 "방향 가설: ① OTM 재가격 (꼬리 보험 수요) ② 스마일 형상 변화 (G2 교차 확인) ③ 산출 방식·시점 차이")
     return L
 
 
@@ -317,6 +317,6 @@ def narrate(df: pd.DataFrame, date=None) -> str:
 
     # ── 각주 ──
     L += ["---",
-          "_원칙: 자세(posture) 기술 — 방향 예측·매매 권고 아님. 해석 후보는 병기이며 단정하지 않는다._",
+          "_원칙: 자세(posture) 기술 — 방향 예측·매매 권고 아님. 방향 가설는 병기이며 단정하지 않는다._",
           "_근거: docs/지표명세서_v0.1.md §7 · docs/해석노트.md 함정 1~8_"]
     return "\n".join(L)
