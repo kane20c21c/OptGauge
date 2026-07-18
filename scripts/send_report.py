@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""일일 보고 메일 발송 (Layer C).
+
+사용: python scripts/send_report.py [--force]
+  - output/daily_report.md 의 최신 보고를 HTML 메일로 발송.
+  - 본문 = 요약·서술 + 게이지별 PNG 차트 (kaleido, cid 인라인),
+    첨부 = daily_report.html (인터랙티브).
+  - 발송 가드: 보고일이 output/.last_sent 와 같으면 스킵 (--force 로 무시)
+    — 주말·수집 지연으로 새 데이터가 없는 날 중복 발송 방지.
+  - SMTP 자격증명: MorningBrief .env 재사용 (GMAIL_USER/GMAIL_APP_PW/RECIPIENTS).
+전제: narrate_daily.py 선행 (md/html 최신).
+"""
+from __future__ import annotations
+
+import re
+import smtplib
+import sys
+from email.mime.application import MIMEApplication
+from email.mime.image import MIMEImage
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from pathlib import Path
+
+import pandas as pd
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
+
+MORNINGBRIEF = Path.home() / "DriveForALL" / "StoLab" / "MorningBrief" / "scripts"
+sys.path.insert(0, str(MORNINGBRIEF))
+
+from lib.env_loader import load_env, get_env, get_recipients  # MorningBrief 공용 모듈
+
+import narrate_daily as nd  # 차트 빌더·md 파서 재사용
+
+SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 465
+STATE = PROJECT_ROOT / "output" / ".last_sent"
+PNG_W, PNG_SCALE = 640, 2
+
+GAUGE_TITLES = ["G1", "G2", "G3", "G4", "G5"]
+
+
+def build_html_and_images(report_md: str, df: pd.DataFrame, i: int):
+    """(본문 HTML, [(cid, png_bytes)]) — 게이지별 서술 + cid 이미지."""
+    head_md, section_mds, footer_md = nd.split_report(report_md)
+    images: list[tuple[str, bytes]] = []
+
+    def png(fig, cid):
+        images.append((cid, fig.to_image(format="png", width=PNG_W, scale=PNG_SCALE)))
+        return (f'<img src="cid:{cid}" alt="{cid}" '
+                f'style="width:100%;max-width:{PNG_W}px;display:block;margin:6px 0 14px;'
+                f'border:1px solid #dde5ec;border-radius:8px;">')
+
+    parts = [f'<div style="font-family:-apple-system,\'Apple SD Gothic Neo\','
+             f'\'Noto Sans KR\',sans-serif;color:#222;max-width:680px;margin:0 auto;'
+             f'line-height:1.5;font-size:14px;">',
+             nd.md_to_html(head_md),
+             png(nd.fig_kospi(df, i), "kospi"),
+             "<h2>게이지 상세</h2>"]
+    for k, sec_md in enumerate(section_mds):
+        parts.append(nd.md_to_html(sec_md))
+        if k < len(nd.FIG_BUILDERS):
+            parts.append(png(nd.FIG_BUILDERS[k](df, i), f"g{k + 1}"))
+    parts.append(f"<hr>{nd.md_to_html(footer_md)}")
+    parts.append('<p style="color:#94a3b8;font-size:12px;">OptGauge · 자동 발송 '
+                 '(인터랙티브 차트는 첨부 daily_report.html)</p></div>')
+    return "".join(parts), images
+
+
+def main() -> None:
+    force = "--force" in sys.argv
+
+    report_md = (PROJECT_ROOT / "output" / "daily_report.md").read_text(encoding="utf-8")
+    m = re.search(r"^# OptGauge 일일 보고 — (\d{4}-\d{2}-\d{2})", report_md, re.M)
+    if not m:
+        raise RuntimeError("daily_report.md 에서 보고일을 찾을 수 없음")
+    report_date = m.group(1)
+
+    if STATE.exists() and STATE.read_text().strip() == report_date and not force:
+        print(f"스킵: {report_date} 보고는 이미 발송됨 (새 데이터 없음 — --force 로 재발송 가능)")
+        return
+
+    df = pd.read_parquet(PROJECT_ROOT / "data" / "gauge_layer_b.parquet")
+    df = df.sort_values("Date").reset_index(drop=True)
+    idx = df.index[df["Date"] == pd.Timestamp(report_date)]
+    if len(idx) == 0:
+        raise RuntimeError(f"gauge_layer_b 에 보고일 없음: {report_date}")
+    i = int(idx[0])
+
+    flags = re.search(r"^- 플래그: (.+)$", report_md, re.M)
+    subject = f"[OptGauge] 일일 보고 {report_date}"
+    if flags and flags.group(1).strip() != "플래그 없음":
+        subject += f" · {flags.group(1).strip()}"
+
+    html, images = build_html_and_images(report_md, df, i)
+
+    load_env()
+    user = get_env("GMAIL_USER", required=True)
+    pw = get_env("GMAIL_APP_PW", required=True)
+    addrs = get_recipients()
+    if not addrs:
+        raise RuntimeError("수신자 없음 — MorningBrief .env RECIPIENTS 확인")
+
+    msg = MIMEMultipart("mixed")
+    msg["Subject"] = subject
+    msg["From"] = f"OptGauge <{user}>"
+    msg["To"] = ", ".join(addrs)
+
+    related = MIMEMultipart("related")
+    related.attach(MIMEText(html, "html", "utf-8"))
+    for cid, data in images:
+        img = MIMEImage(data, "png")
+        img.add_header("Content-ID", f"<{cid}>")
+        img.add_header("Content-Disposition", "inline", filename=f"{cid}.png")
+        related.attach(img)
+    msg.attach(related)
+
+    html_path = PROJECT_ROOT / "output" / "daily_report.html"
+    if html_path.exists():
+        att = MIMEApplication(html_path.read_bytes(), "html")
+        att.add_header("Content-Disposition", "attachment",
+                       filename=f"optgauge_daily_{report_date}.html")
+        msg.attach(att)
+
+    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as s:
+        s.login(user, pw)
+        s.sendmail(user, addrs, msg.as_string())
+
+    STATE.write_text(report_date)
+    print(f"발송 완료: {subject} → {', '.join(addrs)} (이미지 {len(images)}개 + 첨부 1)")
+
+
+if __name__ == "__main__":
+    main()

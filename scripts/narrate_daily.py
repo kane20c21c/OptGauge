@@ -57,16 +57,16 @@ def _window(df: pd.DataFrame, i: int) -> pd.DataFrame:
     return df.iloc[max(i - CHART_DAYS + 1, 0):i + 1]
 
 
-def chart_kospi(df, i):
+def fig_kospi(df, i):
     d = _window(df, i)
     fig = go.Figure(go.Scatter(x=d["Date"], y=d["S"], name="KOSPI200",
                                line=dict(color=C_S, width=1.6), connectgaps=False,
                                hovertemplate="%{y:.2f}<extra>KOSPI200</extra>"))
     _mini_layout(fig, 200, legend=False)
-    return _div(fig)
+    return fig
 
 
-def chart_g1(df, i):
+def fig_g1(df, i):
     d = _window(df, i)
     x = d["Date"]
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
@@ -91,19 +91,19 @@ def chart_g1(df, i):
                                  connectgaps=False), 2, 1)
     fig.add_hline(y=0, row=2, col=1, line=dict(color="#999", width=0.7, dash="dash"))
     _mini_layout(fig, 320, legend=True)
-    return _div(fig)
+    return fig
 
 
-def chart_g2(df, i):
+def fig_g2(df, i):
     d = _window(df, i)
     fig = go.Figure(go.Scatter(x=d["Date"], y=d["Skew"], name="Skew",
                                line=dict(color=C_SKEW, width=1.6), connectgaps=False,
                                hovertemplate="%{y:.2f}%p<extra>Skew</extra>"))
     _mini_layout(fig, 200, legend=False)
-    return _div(fig)
+    return fig
 
 
-def chart_g3(df, i):
+def fig_g3(df, i):
     d = _window(df, i)
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=d["Date"], y=d["TS_diff"], name="TS diff",
@@ -119,29 +119,36 @@ def chart_g3(df, i):
                 customdata=gate["CPgap_next"]))
     fig.add_hline(y=0, line=dict(color="#999", width=0.7, dash="dash"))
     _mini_layout(fig, 200, legend=False)
-    return _div(fig)
+    return fig
 
 
-def chart_g4(df, i):
+def fig_g4(df, i):
     d = _window(df, i)
     fig = go.Figure(go.Scatter(x=d["Date"], y=d["PCR_OI_all"], name="PCR",
                                line=dict(color=C_NEUT, width=1.6), connectgaps=False,
                                hovertemplate="%{y:.2f}<extra>PCR</extra>"))
     fig.add_hline(y=1.0, line=dict(color="#999", width=0.7, dash="dash"))
     _mini_layout(fig, 200, legend=False)
-    return _div(fig)
+    return fig
 
 
-def chart_g5(df, i):
+def fig_g5(df, i):
     d = _window(df, i)
     fig = go.Figure(go.Scatter(x=d["Date"], y=d["VK"], name="VKOSPI",
                                line=dict(color=C_NEUT, width=1.6), connectgaps=False,
                                hovertemplate="%{y:.2f}<extra>VKOSPI</extra>"))
     _mini_layout(fig, 200, legend=False)
-    return _div(fig)
+    return fig
 
 
-GAUGE_CHARTS = [chart_g1, chart_g2, chart_g3, chart_g4, chart_g5]
+FIG_BUILDERS = [fig_g1, fig_g2, fig_g3, fig_g4, fig_g5]  # send_report(PNG) 와 공유
+
+
+def chart_kospi(df, i):
+    return _div(fig_kospi(df, i))
+
+
+GAUGE_CHARTS = [lambda df, i, f=f: _div(f(df, i)) for f in FIG_BUILDERS]
 
 
 # ── markdown → HTML (외부 의존성 없음) ─────────────────────
@@ -158,7 +165,11 @@ def md_to_html(md: str) -> str:
             out.append("</ul>")
             in_list = False
         if line.startswith("### "):
-            out.append(f"<h3>{_inline(line[4:])}</h3>")
+            h = _inline(line[4:])
+            h = re.sub(r"^(G\d — [^(]+?) \(([^)]+)\)",
+                       r'\1 <span style="font-weight:400;color:#8a8f98;font-size:0.82em;">\2</span>',
+                       h)
+            out.append(f"<h3>{h}</h3>")
         elif line.startswith("## "):
             out.append(f"<h2>{_inline(line[3:])}</h2>")
         elif line.startswith("# "):

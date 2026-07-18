@@ -123,7 +123,7 @@ def vrp_state(df: pd.DataFrame, i: int) -> tuple[str, str]:
 
 # ── 게이지별 서술 ─────────────────────────────────────────
 def _g1(df, i, row) -> list[str]:
-    L = [f"### G1 — IV 수준·변화{_flag(row, 'ATM_IV', True)}{_flag(row, 'VRP', True)}{_flag(row, 'VRP_fast', True)}"]
+    L = [f"### G1 — IV 수준·변화 (시장이 예상하는 지수의 연율 변동성 — 수준과 변화){_flag(row, 'ATM_IV', True)}{_flag(row, 'VRP', True)}{_flag(row, 'VRP_fast', True)}"]
     iv = row["ATM_IV"]
     monthly = iv / np.sqrt(12) if np.isfinite(iv) else np.nan
     L.append(f"- ATM IV **{_f(iv)}%** ({_pcts(row, 'ATM_IV')}) · "
@@ -168,7 +168,7 @@ def _g1(df, i, row) -> list[str]:
 
 
 def _g2(df, i, row) -> list[str]:
-    L = [f"### G2 — 스큐 (vol-조정 ±0.5σ){_flag(row, 'Skew', True)}"]
+    L = [f"### G2 — 스큐 (풋−콜 IV 차 — 하방 보험의 상대 가격, vol-조정 ±0.5σ){_flag(row, 'Skew', True)}"]
     L.append(f"- Skew **{_f(row['Skew'])}%p** ({_pcts(row, 'Skew')}) · norm {_f(row.get('Skew_norm'))}")
     z = row.get("Skew__Z")
     if _fin(z) and abs(z) >= 1.5:
@@ -195,7 +195,7 @@ def _g2(df, i, row) -> list[str]:
 
 
 def _g3(df, i, row) -> list[str]:
-    L = [f"### G3 — 기간구조{_flag(row, 'TS_diff', True)}"]
+    L = [f"### G3 — 기간구조 (차월−근월 IV 차 — 변동성 기대의 시간 분포, 음수=단기 스트레스){_flag(row, 'TS_diff', True)}"]
     dte = row.get("Front_DTE")
     L.append(f"- TS_diff **{_f(row['TS_diff'], '{:+.2f}')}%p** ({_pcts(row, 'TS_diff')}) · "
              f"**잔존 {_f(dte, '{:.0f}')}일** (함정 5: TS 는 항상 잔존만기 병기)")
@@ -218,7 +218,7 @@ def _g3(df, i, row) -> list[str]:
 
 
 def _g4(df, i, row) -> list[str]:
-    L = [f"### G4 — 미결제 분포{_flag(row, 'PCR_OI_all', True)}"]
+    L = [f"### G4 — 미결제 분포 (옵션 미결제약정의 지형 — 포지션 재고가 쌓인 곳){_flag(row, 'PCR_OI_all', True)}"]
     dte = row.get("Front_DTE")
     L.append(f"- PCR(전월물) **{_f(row['PCR_OI_all'])}** ({_pcts(row, 'PCR_OI_all')}) · "
              f"ΔOI {_f(row.get('dOI_total_pct'), '{:+.1f}')}% · OI {_f(row.get('OI_total'), '{:,.0f}')} · "
@@ -237,7 +237,7 @@ def _g4(df, i, row) -> list[str]:
 
 
 def _g5(df, i, row) -> list[str]:
-    L = [f"### G5 — VKOSPI{_flag(row, 'VK', True)}"]
+    L = [f"### G5 — VKOSPI (거래소 공식 모델프리 변동성지수 — ATM IV 와의 괴리는 스마일 정보){_flag(row, 'VK', True)}"]
     L.append(f"- VK **{_f(row['VK'])}** ({_pcts(row, 'VK')}) · ΔVK {_f(row.get('dVK'), '{:+.2f}')} · "
              f"basis(VK−ATM) {_f(row.get('VK_basis'), '{:+.2f}')}%p (모델프리 vs ATM — 스마일 정보)")
     basis = row.get("VK_basis")
