@@ -19,6 +19,7 @@ trap on_error ERR
 
 {
   echo "=== OptGauge daily $(date '+%F %T') ==="
+  "$PY" -m pytest tests/ -q          # V1~V5 검증 게이트 — 실패 시 파이프라인 중단 (명세서 §8)
   "$PY" scripts/build_metrics.py
   "$PY" scripts/build_layer_b.py
   "$PY" scripts/narrate_daily.py
