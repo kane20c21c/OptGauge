@@ -72,7 +72,7 @@ def z_delta(s: pd.Series, dates: pd.Series, window: int = 60,
 
 
 def add_layer_b(df: pd.DataFrame, metrics: list[str],
-                windows: tuple[int, ...] = (60, 120, 250)) -> pd.DataFrame:
+                windows: tuple[int, ...] = (60, 250)) -> pd.DataFrame:
     """지표 목록에 P_full / P_roll{w} / Z_delta / 플래그 컬럼을 추가.
 
     생성 컬럼 (지표 X 마다):

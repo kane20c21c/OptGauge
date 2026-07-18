@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Layer B 프리 테스트 러너 (2026-07-16).
 
-검증 질문: 코로나 진입(2020-02~03)에서 롤링 백분위(60/120/250)가
+검증 질문: 코로나 진입(2020-02~03)에서 롤링 백분위(60/250, 확정 전 3벌)가
 전체기간 백분위 대비 얼마나 빨리 반응하고, 이후 재정규화되는가.
 
 산출:
@@ -26,7 +26,7 @@ from optgauge.normalize import add_layer_b, FLAG_HIGH
 
 METRICS = ["ATM_IV", "Skew", "TS_diff", "PCR_OI_all", "VK", "VRP",
            "VRP_fast"]  # 보조 (EWMA λ=0.90 조기경보 — 명세서 G1, 2026-07-18 Kane 편입 승인)
-WINDOWS = (60, 120, 250)
+WINDOWS = (60, 250)  # [확정 2026-07-18] 60 주력 + 250 보조, 120 제거 (명세서 §6)
 
 
 def main() -> None:
@@ -70,14 +70,14 @@ def main() -> None:
     # ── 차트 ──
     fig = make_subplots(
         rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.06,
-        subplot_titles=("ATM IV (원값)", "ATM IV 백분위 — 전체 vs 롤링 3벌",
-                        "Skew 백분위 — 전체 vs 롤링 3벌"),
+        subplot_titles=("ATM IV (원값)", "ATM IV 백분위 — 전체 vs 롤60/롤250",
+                        "Skew 백분위 — 전체 vs 롤60/롤250"),
     )
     d = df["Date"]
     fig.add_trace(go.Scatter(x=d, y=df["ATM_IV"], name="ATM IV",
                              line=dict(color="#333", width=1.2), connectgaps=False), 1, 1)
     colors = {"P_full": "#999999", "P_roll60": "#ef5350",
-              "P_roll120": "#44aa88", "P_roll250": "#1976D2"}
+              "P_roll250": "#1976D2"}
     for m, row in (("ATM_IV", 2), ("Skew", 3)):
         for suffix, c in colors.items():
             col = f"{m}__{suffix}"

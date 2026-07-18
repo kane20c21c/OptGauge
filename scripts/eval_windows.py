@@ -14,7 +14,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-NORMS = ["P_full", "P_roll60", "P_roll120", "P_roll250"]
+NORMS = ["P_full", "P_roll60", "P_roll250"]  # 120 제거 — 윈도 확정 (2026-07-18)
 METRICS = ["ATM_IV", "VK", "Skew"]
 
 
