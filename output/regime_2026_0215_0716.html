@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2026 극단 레짐 — 코이백·브이코·ATM IV·TS_diff (2/15~7/16)</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --band-wash: rgba(240,239,236,0.6);
+    --series-s: #2a78d6;      /* KOSPI200 */
+    --series-iv: #008300;     /* ATM IV 근월 */
+    --series-vk: #e87ba4;     /* VKOSPI */
+    --ts-neg: #e34948;
+    --ts-pos: #2a78d6;
+    --candle-up: #e34948;    /* K-관례: 상승 빨강 */
+    --candle-down: #2a78d6;  /* 하락 파랑 */
+    --border: rgba(11,11,11,0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1: #1a1a19; --page: #0d0d0d;
+      --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #898781;
+      --grid: #2c2c2a; --baseline: #383835; --band-wash: rgba(56,56,53,0.5);
+      --series-s: #3987e5; --series-iv: #008300; --series-vk: #d55181;
+      --ts-neg: #e66767; --ts-pos: #3987e5;
+      --candle-up: #e66767; --candle-down: #3987e5;
+      --border: rgba(255,255,255,0.10);
+    }
+  }
+  html, body { margin: 0; padding: 0; background: var(--page); }
+  .viz-root {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--page); color: var(--text-primary);
+    max-width: 1000px; margin: 0 auto; padding: 28px 20px 40px;
+  }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 22px 24px 18px; }
+  h1 { font-size: 19px; font-weight: 650; margin: 0 0 4px; }
+  .sub { font-size: 13px; color: var(--text-secondary); margin: 0 0 18px; line-height: 1.5; }
+  .panel-title { font-size: 12.5px; font-weight: 600; color: var(--text-secondary); margin: 14px 0 2px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .legend { display: inline-flex; gap: 12px; font-weight: 400; color: var(--text-secondary); font-size: 12px; }
+  .key { display: inline-flex; align-items: center; gap: 5px; }
+  .key .swatch-line { width: 14px; height: 0; border-top: 2px solid; border-radius: 1px; }
+  .key .swatch-box { width: 9px; height: 9px; border-radius: 2px; }
+  .key .swatch-wash { width: 12px; height: 12px; border-radius: 2px; background: var(--band-wash); border: 1px solid var(--grid); }
+  svg { display: block; width: 100%; height: auto; }
+  .tip {
+    position: fixed; pointer-events: none; z-index: 10; display: none;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.13); padding: 8px 11px; font-size: 12px; line-height: 1.55;
+    color: var(--text-primary); min-width: 190px;
+  }
+  .tip .d { font-weight: 600; margin-bottom: 2px; }
+  .tip .row { display: flex; justify-content: space-between; gap: 14px; color: var(--text-secondary); }
+  .tip .row b { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tip .state { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--grid); font-size: 11.5px; color: var(--text-secondary); }
+  .foot { font-size: 11.5px; color: var(--text-muted); line-height: 1.6; margin-top: 16px; }
+  details { margin-top: 14px; font-size: 12px; color: var(--text-secondary); }
+  summary { cursor: pointer; font-weight: 600; }
+  table { border-collapse: collapse; margin-top: 8px; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 3px 8px; border-bottom: 1px solid var(--grid); }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { color: var(--text-muted); font-weight: 600; position: sticky; top: 0; background: var(--surface-1); }
+  .tablewrap { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="viz-root">
+  <div class="card">
+    <h1>2026 극단 레짐 — 코이백 · 브이코 · ATM IV · TS_diff</h1>
+    <p class="sub">2026-02-19 ~ 2026-07-16, 101거래일. 캔들·VKOSPI는 LLV parquet 직접(7/16 포함),
+    옵션 지표(ATM IV·TS_diff)는 gauge_daily 마지막 행인 7/15까지.<br>
+    회색 음영 = 백워데이션 상태(TS_diff ≤ −1%p) — 구간의 41%. |일간수익률| ≥ 2%인 날이 57%.</p>
+    <div id="chart"></div>
+    <p class="foot">
+      TS 패널 아래 짧은 눈금 = 근월 잔존 ≤ 7거래일 (함정 5 — 만기근접 왜곡 후보). ▽ = 월물 롤 발생일.<br>
+      마우스를 올리면 일별 상태 태그(방향 × 기간구조 × VK)가 표시됩니다.<br>
+      자료: OptGauge data/gauge_daily.parquet (LLV KRX 옵션, 지표명세서 v1.0 규칙) · 생성 2026-07-17
+    </p>
+    <details>
+      <summary>데이터 표로 보기 (100행)</summary>
+      <div class="tablewrap"><table id="dtable">
+        <thead><tr><th>날짜</th><th>시가</th><th>고가</th><th>저가</th><th>종가</th><th>일간%</th><th>ATM IV</th><th>VKOSPI</th><th>TS_diff</th><th>잔존일</th><th>롤</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </details>
+  </div>
+</div>
+<div class="tip" id="tip"></div>
+<script>
+const DATA = {"date": ["2026-02-19", "2026-02-20", "2026-02-23", "2026-02-24", "2026-02-25", "2026-02-26", "2026-02-27", "2026-03-03", "2026-03-04", "2026-03-05", "2026-03-06", "2026-03-09", "2026-03-10", "2026-03-11", "2026-03-12", "2026-03-13", "2026-03-16", "2026-03-17", "2026-03-18", "2026-03-19", "2026-03-20", "2026-03-23", "2026-03-24", "2026-03-25", "2026-03-26", "2026-03-27", "2026-03-30", "2026-03-31", "2026-04-01", "2026-04-02", "2026-04-03", "2026-04-06", "2026-04-07", "2026-04-08", "2026-04-09", "2026-04-10", "2026-04-13", "2026-04-14", "2026-04-15", "2026-04-16", "2026-04-17", "2026-04-20", "2026-04-21", "2026-04-22", "2026-04-23", "2026-04-24", "2026-04-27", "2026-04-28", "2026-04-29", "2026-04-30", "2026-05-04", "2026-05-06", "2026-05-07", "2026-05-08", "2026-05-11", "2026-05-12", "2026-05-13", "2026-05-14", "2026-05-15", "2026-05-18", "2026-05-19", "2026-05-20", "2026-05-21", "2026-05-22", "2026-05-26", "2026-05-27", "2026-05-28", "2026-05-29", "2026-06-01", "2026-06-02", "2026-06-04", "2026-06-05", "2026-06-08", "2026-06-09", "2026-06-10", "2026-06-11", "2026-06-12", "2026-06-15", "2026-06-16", "2026-06-17", "2026-06-18", "2026-06-19", "2026-06-22", "2026-06-23", "2026-06-24", "2026-06-25", "2026-06-26", "2026-06-29", "2026-06-30", "2026-07-01", "2026-07-02", "2026-07-03", "2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-13", "2026-07-14", "2026-07-15", "2026-07-16"], "s": [840.24, 859.59, 865.49, 886.88, 903.83, 944.02, 933.34, 859.4, 756.79, 831.22, 828.83, 775.31, 823.02, 834.05, 827.51, 812.93, 826.83, 840.89, 888.57, 862.37, 862.5, 804.86, 827.64, 838.7, 808.89, 805.19, 780.32, 744.57, 813.84, 774.63, 798.32, 811.84, 821.1, 882.81, 865.75, 878.78, 870.78, 897.0, 916.6, 937.87, 931.41, 935.75, 962.26, 964.52, 975.62, 971.87, 995.33, 999.03, 1006.59, 992.15, 1049.66, 1129.63, 1149.86, 1151.17, 1211.44, 1183.41, 1220.17, 1243.17, 1162.39, 1171.3, 1132.42, 1125.51, 1225.22, 1226.03, 1260.53, 1298.86, 1292.57, 1342.82, 1399.91, 1407.23, 1379.56, 1297.02, 1186.54, 1293.4, 1227.12, 1231.54, 1291.32, 1360.26, 1391.74, 1416.97, 1459.23, 1459.48, 1477.22, 1321.7, 1369.62, 1454.15, 1366.49, 1352.54, 1370.73, 1335.36, 1219.62, 1299.3, 1293.13, 1225.57, 1158.37, 1169.73, 1196.69, 1078.78, 1092.23, 1163.9, 1080.36], "ret": [3.15, 2.3, 0.69, 2.47, 1.91, 4.45, -1.13, -7.92, -11.94, 9.83, -0.29, -6.46, 6.15, 1.34, -0.78, -1.76, 1.71, 1.7, 5.67, -2.95, 0.02, -6.68, 2.83, 1.34, -3.55, -0.46, -3.09, -4.58, 9.3, -4.82, 3.06, 1.69, 1.14, 7.52, -1.93, 1.51, -0.91, 3.01, 2.19, 2.32, -0.69, 0.47, 2.83, 0.23, 1.15, -0.38, 2.41, 0.37, 0.76, -1.43, 5.8, 7.62, 1.79, 0.11, 5.24, -2.31, 3.11, 1.88, -6.5, 0.77, -3.32, -0.61, 8.86, 0.07, 2.81, 3.04, -0.48, 3.89, 4.25, 0.52, -1.97, -5.98, -8.52, 9.01, -5.12, 0.36, 4.85, 5.34, 2.31, 1.81, 2.98, 0.02, 1.22, -10.53, 3.63, 6.17, -6.03, -1.02, 1.34, -2.58, -8.67, 6.53, -0.47, -5.22, -5.48, 0.98, 2.3, -9.85, 1.25, 6.56, -7.18], "iv": [38.0, 41.5, 42.9, 43.75, 46.75, 49.25, 47.75, 63.5, 106.5, 71.5, 50.25, 63.25, 55.38, 55.5, 55.25, 52.25, 46.75, 46.25, 49.0, 51.5, 50.75, 63.0, 59.5, 55.5, 54.0, 56.25, 58.5, 62.5, 57.5, 58.25, 53.2, 53.75, 53.75, 49.25, 48.25, 45.25, 43.9, 44.5, 51.75, 45.25, 43.0, 45.4, 46.75, 48.0, 48.75, 47.0, 47.0, 46.9, 45.88, 53.15, 42.25, 54.75, 49.0, 52.88, 57.19, 65.9, 62.88, 58.75, 71.5, 55.75, 62.16, 58.75, 48.65, 58.25, 59.75, 64.25, 63.75, 57.25, 59.25, 61.0, 54.75, 68.48, 76.5, 78.0, 79.31, 73.25, 88.75, 78.75, 69.38, 67.25, 70.5, 75.5, 78.0, 87.25, 88.0, 81.5, 88.58, 86.0, 76.25, 73.12, 81.5, 80.5, 79.57, 82.62, 85.0, 77.5, 71.62, 72.0, 77.88, 78.5, null], "vk": [42.56, 43.87, 46.34, 48.12, 49.57, 54.67, 54.12, 62.98, 80.37, 73.71, 62.72, 71.82, 66.61, 63.19, 65.35, 60.76, 54.67, 52.6, 54.18, 55.47, 55.64, 62.8, 64.99, 61.5, 59.85, 60.6, 61.43, 61.48, 61.65, 58.91, 59.1, 59.64, 59.49, 57.7, 53.96, 49.58, 50.14, 49.87, 51.97, 50.47, 48.51, 50.32, 51.63, 52.12, 54.03, 53.56, 54.95, 55.0, 55.57, 54.34, 55.87, 60.07, 61.05, 60.53, 65.6, 70.14, 76.16, 72.91, 74.71, 74.05, 72.51, 71.37, 71.33, 66.97, 68.09, 70.78, 71.6, 74.26, 74.22, 73.6, 73.44, 73.44, 76.63, 91.23, 88.35, 87.3, 89.91, 87.85, 84.29, 79.65, 80.25, 83.57, 87.36, 89.41, 94.81, 95.09, 92.71, 96.94, 93.8, 88.67, 86.41, 89.29, 86.86, 85.69, 87.9, 85.48, 78.15, 83.33, 83.97, 85.79, 87.14], "ts": [0.58, -3.24, -2.0, -0.94, -1.5, -0.7, 2.43, -8.5, -31.25, -9.5, 0.9, -7.47, 4.62, -4.75, -1.1, -2.0, -0.25, -1.39, -3.62, -2.45, -3.22, -7.26, -11.19, -1.55, -2.01, -4.58, -2.17, -7.75, -11.0, -3.5, -0.41, 1.47, 2.36, -1.48, 0.05, -0.25, -0.82, -0.27, -6.62, 1.02, 1.25, -0.24, -0.53, -0.57, 0.55, 3.52, 2.83, 4.85, 4.19, -4.27, 6.0, 1.25, 5.25, 0.55, -2.5, -3.53, -1.8, 1.33, -11.47, 8.92, 2.73, 8.29, 12.24, 2.7, 3.0, 1.91, 0.75, 8.25, 6.25, 7.67, 13.78, 2.54, -4.4, 2.17, 0.88, 4.81, -10.9, -0.47, 4.87, 2.72, 1.97, 1.23, 1.58, -1.31, -5.47, -0.61, 0.96, 2.32, 7.4, 6.19, -0.34, -8.94, -3.01, -2.6, -4.29, -3.3, 7.92, 5.37, -8.05, -2.97, null], "dvk": [0.99, 1.31, 2.47, 1.78, 1.45, 5.1, -0.55, 8.86, 17.39, -6.66, -10.99, 9.1, -5.21, -3.42, 2.16, -4.59, -6.09, -2.07, 1.58, 1.29, 0.17, 7.16, 2.19, -3.49, -1.65, 0.75, 0.83, 0.05, 0.17, -2.74, 0.19, 0.54, -0.15, -1.79, -3.74, -4.38, 0.56, -0.27, 2.1, -1.5, -1.96, 1.81, 1.31, 0.49, 1.91, -0.47, 1.39, 0.05, 0.57, -1.23, 1.53, 4.2, 0.98, -0.52, 5.07, 4.54, 6.02, -3.25, 1.8, -0.66, -1.54, -1.14, -0.04, -4.36, 1.12, 2.69, 0.82, 2.66, -0.04, -0.62, -0.16, 0.0, 3.19, 14.6, -2.88, -1.05, 2.61, -2.06, -3.56, -4.64, 0.6, 3.32, 3.79, 2.05, 5.4, 0.28, -2.38, 4.23, -3.14, -5.13, -2.26, 2.88, -2.43, -1.17, 2.21, -2.42, -7.33, 5.18, 0.64, 1.82, 1.35], "dte": [15, 14, 13, 12, 11, 10, 9, 7, 6, 5, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 8, 6, 5, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 12, 11, 10, 9, 8, 7, 5, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20], "roll": [false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false, false, false, false, false], "o": [836.12, 842.56, 874.93, 866.44, 895.38, 910.73, 924.59, 921.46, 827.46, 775.83, 815.04, 777.67, 820.11, 842.21, 826.36, 800.34, 817.51, 853.4, 861.48, 861.23, 869.58, 829.96, 841.92, 847.46, 829.6, 783.41, 765.53, 757.62, 789.35, 825.52, 797.34, 806.59, 829.9, 872.13, 874.49, 882.3, 857.95, 895.98, 926.1, 925.05, 938.0, 935.02, 949.37, 961.97, 975.5, 978.27, 980.35, 1000.71, 994.38, 1015.18, 1022.41, 1076.73, 1150.18, 1124.95, 1201.01, 1233.82, 1158.87, 1223.66, 1236.66, 1154.84, 1154.09, 1141.57, 1171.1, 1232.73, 1262.2, 1296.31, 1287.18, 1327.15, 1344.09, 1419.07, 1374.74, 1323.25, 1282.81, 1221.75, 1258.44, 1190.75, 1317.78, 1360.33, 1386.42, 1372.13, 1420.99, 1499.31, 1442.16, 1470.75, 1348.99, 1408.25, 1433.15, 1352.07, 1356.86, 1388.86, 1269.77, 1235.2, 1316.14, 1271.07, 1190.6, 1202.01, 1214.66, 1185.03, 1073.0, 1129.73, 1106.26], "h": [841.95, 860.22, 879.85, 886.95, 913.67, 945.17, 951.62, 922.03, 845.52, 855.65, 833.08, 786.66, 833.94, 854.96, 836.64, 821.54, 828.38, 854.39, 890.41, 878.88, 871.86, 829.96, 842.94, 857.63, 830.62, 809.78, 783.3, 772.81, 819.67, 829.81, 804.95, 820.23, 836.08, 892.17, 879.98, 890.08, 874.35, 907.4, 933.04, 938.87, 938.98, 945.91, 962.47, 966.08, 989.88, 981.72, 1002.78, 1011.6, 1009.87, 1017.96, 1049.87, 1137.23, 1156.72, 1153.8, 1226.18, 1241.39, 1222.53, 1246.61, 1253.67, 1193.32, 1159.13, 1142.24, 1226.59, 1235.4, 1274.96, 1340.85, 1305.67, 1343.14, 1412.58, 1430.49, 1402.04, 1338.13, 1282.81, 1297.79, 1274.61, 1243.45, 1345.97, 1370.94, 1396.59, 1418.39, 1466.74, 1518.11, 1500.12, 1487.31, 1389.53, 1473.83, 1441.9, 1377.12, 1404.1, 1396.54, 1304.45, 1308.19, 1341.16, 1278.15, 1251.83, 1212.49, 1236.84, 1204.96, 1112.5, 1189.29, 1111.32], "l": [830.57, 839.98, 856.9, 855.13, 888.96, 908.12, 918.77, 859.3, 751.45, 775.26, 797.9, 751.42, 806.41, 825.81, 819.77, 797.11, 809.06, 839.5, 860.77, 857.73, 859.83, 803.42, 803.08, 837.43, 807.13, 772.21, 761.08, 743.29, 780.98, 764.34, 788.39, 804.43, 809.26, 866.77, 862.13, 877.3, 857.01, 891.74, 912.4, 920.93, 926.77, 929.08, 949.24, 949.42, 948.19, 960.09, 980.02, 995.35, 991.46, 991.91, 1014.85, 1076.73, 1110.37, 1120.24, 1192.24, 1148.24, 1143.13, 1220.36, 1143.19, 1109.59, 1110.81, 1097.82, 1170.63, 1214.77, 1252.13, 1291.71, 1235.32, 1310.59, 1343.96, 1353.19, 1367.15, 1278.65, 1177.72, 1206.94, 1197.04, 1171.45, 1285.48, 1346.15, 1357.84, 1370.26, 1420.95, 1423.84, 1434.1, 1320.8, 1300.92, 1405.73, 1318.56, 1311.25, 1325.41, 1309.84, 1213.66, 1176.04, 1253.99, 1180.72, 1149.71, 1130.56, 1188.54, 1074.29, 1020.62, 1129.41, 1067.14], "c": [840.24, 859.59, 865.49, 886.88, 903.83, 944.02, 933.34, 859.4, 756.79, 831.22, 828.83, 775.31, 823.02, 834.05, 827.51, 812.93, 826.83, 840.89, 888.57, 862.37, 862.5, 804.86, 827.64, 838.7, 808.89, 805.19, 780.32, 744.57, 813.84, 774.63, 798.32, 811.84, 821.1, 882.81, 865.75, 878.78, 870.78, 897.0, 916.6, 937.87, 931.41, 935.75, 962.26, 964.52, 975.62, 971.87, 995.33, 999.03, 1006.59, 992.15, 1049.66, 1129.63, 1149.86, 1151.17, 1211.44, 1183.41, 1220.17, 1243.17, 1162.39, 1171.3, 1132.42, 1125.51, 1225.22, 1226.03, 1260.53, 1298.86, 1292.57, 1342.82, 1399.91, 1407.23, 1379.56, 1297.02, 1186.54, 1293.4, 1227.12, 1231.54, 1291.32, 1360.26, 1391.74, 1416.97, 1459.23, 1459.48, 1477.22, 1321.7, 1369.62, 1454.15, 1366.49, 1352.54, 1370.73, 1335.36, 1219.62, 1299.3, 1293.13, 1225.57, 1158.37, 1169.73, 1196.69, 1078.78, 1092.23, 1163.9, 1080.36]};
+const N = DATA.date.length;
+const W = 960, ML = 48, MR = 14, plotW = W - ML - MR;
+const xAt = i => ML + (i + 0.5) * plotW / N;
+const idxOf = ds => DATA.date.indexOf(ds);
+const BW = DATA.ts.map(v => v <= -1);
+// contiguous backwardation segments
+const segs = [];
+for (let i = 0; i < N; i++) {
+  if (BW[i] && (i === 0 || !BW[i-1])) segs.push([i, i]);
+  else if (BW[i]) segs[segs.length-1][1] = i;
+}
+function niceTicks(min, max, n) {
+  const span = max - min, step0 = span / n, mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => span / s <= n + 0.5) || 10 * mag;
+  const t = []; for (let v = Math.ceil(min / step) * step; v <= max + 1e-9; v += step) t.push(+v.toFixed(6));
+  return t;
+}
+const monthStarts = [];
+for (let i = 0; i < N; i++) { const m = DATA.date[i].slice(0, 7); if (i === 0 || DATA.date[i-1].slice(0,7) !== m) monthStarts.push([i, +m.slice(5) + '월']); }
+
+function panelSvg(id, H, MT, MB, yMin, yMax, drawBody, opts = {}) {
+  const plotH = H - MT - MB;
+  const yAt = v => MT + (yMax - v) / (yMax - yMin) * plotH;
+  let s = `<svg id="${id}" viewBox="0 0 ${W} ${H}">`;
+  s += `<rect x="0" y="0" width="${W}" height="${H}" fill="var(--surface-1)"/>`;
+  for (const [a, b] of segs) {
+    const x0 = xAt(a) - 0.5 * plotW / N, x1 = xAt(b) + 0.5 * plotW / N;
+    s += `<rect x="${x0.toFixed(1)}" y="${MT}" width="${(x1-x0).toFixed(1)}" height="${plotH}" fill="var(--band-wash)"/>`;
+  }
+  for (const t of niceTicks(yMin, yMax, opts.yTicks || 4)) {
+    const y = yAt(t).toFixed(1);
+    s += `<line x1="${ML}" y1="${y}" x2="${W-MR}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;
+    s += `<text x="${ML-7}" y="${+y+3.5}" text-anchor="end" font-size="10.5" fill="var(--text-muted)">${t.toLocaleString()}</text>`;
+  }
+  if (opts.xLabels) for (const [i, lab] of monthStarts)
+    s += `<text x="${xAt(i).toFixed(1)}" y="${H-6}" font-size="10.5" fill="var(--text-muted)">${lab}</text>`;
+  s += drawBody(yAt);
+  s += `<line x1="${ML}" y1="${MT+plotH}" x2="${W-MR}" y2="${MT+plotH}" stroke="var(--baseline)" stroke-width="1"/>`;
+  s += `<g class="cross" style="display:none"><line y1="${MT}" y2="${MT+plotH}" stroke="var(--text-muted)" stroke-width="1" opacity="0.55"/></g>`;
+  s += `</svg>`;
+  return s;
+}
+function linePath(vals, yAt) {
+  let p = '';
+  for (let i = 0; i < N; i++) { if (vals[i] == null) continue; p += (p ? 'L' : 'M') + xAt(i).toFixed(1) + ',' + yAt(vals[i]).toFixed(1); }
+  return p;
+}
+const lbl = (x, y, text, anchor, color) =>
+  `<text x="${x}" y="${y}" text-anchor="${anchor||'middle'}" font-size="10.5" font-weight="600" fill="${color||'var(--text-secondary)'}">${text}</text>`;
+const dot = (i, v, yAt, colorVar) =>
+  `<circle cx="${xAt(i)}" cy="${yAt(v)}" r="4" fill="var(${colorVar})" stroke="var(--surface-1)" stroke-width="2"/>`;
+
+// ---------- panel 1: KOSPI200 candles ----------
+const mmdd = i => DATA.date[i].slice(5).replace('-', '/').replace(/^0/, '').replace('/0', '/');
+const lows = DATA.l.filter(v => v != null), highs = DATA.h.filter(v => v != null);
+const sLo = Math.floor(Math.min(...lows)/50)*50, sHi = Math.ceil(Math.max(...highs)/50)*50;
+const p1 = panelSvg('p1', 230, 16, 8, sLo, sHi, yAt => {
+  let s = '';
+  const bw = Math.min(24, Math.max(3, plotW / N - 2.2));
+  for (let i = 0; i < N; i++) {
+    if (DATA.o[i] == null) continue;
+    const o = DATA.o[i], c = DATA.c[i], hi = DATA.h[i], lo = DATA.l[i];
+    const up = c >= o, col = up ? 'var(--candle-up)' : 'var(--candle-down)';
+    const x = xAt(i);
+    s += `<line x1="${x.toFixed(1)}" y1="${yAt(hi).toFixed(1)}" x2="${x.toFixed(1)}" y2="${yAt(lo).toFixed(1)}" stroke="${col}" stroke-width="1.4"/>`;
+    const yTop = yAt(Math.max(o, c)), yBot = yAt(Math.min(o, c));
+    s += `<rect x="${(x - bw/2).toFixed(1)}" y="${yTop.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(yBot - yTop, 1.2).toFixed(1)}" fill="${col}" rx="1"/>`;
+  }
+  const iLo = DATA.l.indexOf(Math.min(...lows)), iHi = DATA.h.indexOf(Math.max(...highs));
+  s += lbl(xAt(iLo), yAt(DATA.l[iLo])+16, `${mmdd(iLo)} 저점 ${DATA.l[iLo].toLocaleString()}`);
+  s += lbl(xAt(iHi), yAt(DATA.h[iHi])-8, `${mmdd(iHi)} 고점 ${DATA.h[iHi].toLocaleString()}`);
+  const iC1 = idxOf('2026-03-04');
+  s += lbl(xAt(iC1)-8, yAt(DATA.h[iC1])-6, '3/4 −11.9%', 'end');
+  s += lbl(W-MR, yAt(DATA.l[N-1])+16, `7/16 −7.2%`, 'end');
+  return s;
+});
+
+// ---------- panel 2: ATM IV & VKOSPI ----------
+const vLo = 30, vHi = 110;
+const p2 = panelSvg('p2', 200, 14, 8, vLo, vHi, yAt => {
+  let s = `<path d="${linePath(DATA.vk, yAt)}" fill="none" stroke="var(--series-vk)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  s += `<path d="${linePath(DATA.iv, yAt)}" fill="none" stroke="var(--series-iv)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  const ivClean = DATA.iv.filter(v => v != null);
+  const iIv = DATA.iv.indexOf(Math.max(...ivClean)), iVk = DATA.vk.indexOf(Math.max(...DATA.vk));
+  s += dot(iIv, DATA.iv[iIv], yAt, '--series-iv') + lbl(xAt(iIv)+7, yAt(DATA.iv[iIv])+1, '3/4 IV 106.5', 'start');
+  s += dot(iVk, DATA.vk[iVk], yAt, '--series-vk') + lbl(xAt(iVk), yAt(DATA.vk[iVk])-8, '6/29 VK 96.9 사상최고');
+  const lastIv = ivClean[ivClean.length-1];
+  s += lbl(W-MR, yAt(DATA.vk[N-1])-8, `VK ${DATA.vk[N-1].toFixed(1)}`, 'end');
+  s += lbl(W-MR, yAt(lastIv)+14, `IV ${lastIv.toFixed(1)}`, 'end');
+  return s;
+});
+
+// ---------- panel 3: TS_diff ----------
+const tsClean = DATA.ts.filter(v => v != null);
+const tLo = Math.floor(Math.min(...tsClean)/4)*4, tHi = Math.ceil(Math.max(...tsClean)/4)*4;
+const p3 = panelSvg('p3', 250, 14, 40, tLo, tHi, yAt => {
+  let s = '';
+  const y0 = yAt(0), bw = Math.min(24, Math.max(2.5, plotW / N - 2)), r = Math.min(2, bw / 2);
+  for (let i = 0; i < N; i++) {
+    const v = DATA.ts[i]; if (v == null) continue;
+    const x = xAt(i) - bw / 2, y = yAt(v);
+    const neg = v < 0, hh = Math.abs(y - y0);
+    const col = neg ? 'var(--ts-neg)' : 'var(--ts-pos)';
+    if (hh < r + 0.5) { s += `<rect x="${x.toFixed(1)}" y="${Math.min(y,y0).toFixed(1)}" width="${bw}" height="${Math.max(hh,1).toFixed(1)}" fill="${col}"/>`; continue; }
+    s += neg
+      ? `<path d="M${x.toFixed(1)},${y0} v${(hh-r).toFixed(1)} q0,${r} ${r},${r} h${(bw-2*r).toFixed(1)} q${r},0 ${r},-${r} v-${(hh-r).toFixed(1)} z" fill="${col}"/>`
+      : `<path d="M${x.toFixed(1)},${y0} v-${(hh-r).toFixed(1)} q0,-${r} ${r},-${r} h${(bw-2*r).toFixed(1)} q${r},0 ${r},${r} v${(hh-r).toFixed(1)} z" fill="${col}"/>`;
+  }
+  s += `<line x1="${ML}" y1="${y0.toFixed(1)}" x2="${W-MR}" y2="${y0.toFixed(1)}" stroke="var(--baseline)" stroke-width="1"/>`;
+  // annotations
+  const a1 = idxOf('2026-03-04');
+  s += lbl(xAt(a1)-6, yAt(DATA.ts[a1])-2, '3/4 −31.25', 'end');
+  const iMax = DATA.ts.indexOf(Math.max(...tsClean));
+  s += lbl(xAt(iMax), yAt(DATA.ts[iMax])-6, DATA.date[iMax].slice(5).replace('-','/') + ' +' + DATA.ts[iMax].toFixed(1));
+  const a2 = idxOf('2026-07-13');
+  s += lbl(xAt(a2)-6, yAt(DATA.ts[a2])-6, '7/13 급락일인데 +5.4', 'end');
+  // DTE<=7 ticks + roll markers
+  const bot = yAt(tLo);
+  for (let i = 0; i < N; i++) {
+    if (DATA.dte[i] <= 7) s += `<line x1="${xAt(i).toFixed(1)}" y1="${(bot+2).toFixed(1)}" x2="${xAt(i).toFixed(1)}" y2="${(bot+7).toFixed(1)}" stroke="var(--text-muted)" stroke-width="1.5"/>`;
+    if (DATA.roll[i]) s += `<path d="M${(xAt(i)-3.5).toFixed(1)},${(bot+9).toFixed(1)} h7 l-3.5,5 z" fill="var(--text-muted)"/>`;
+  }
+  return s;
+}, { yTicks: 6, xLabels: true });
+
+document.getElementById('chart').innerHTML = `
+  <div class="panel-title">코이백 — KOSPI200 (OHLC 캔들)
+    <span class="legend">
+      <span class="key"><span class="swatch-box" style="background:var(--candle-up)"></span>상승</span>
+      <span class="key"><span class="swatch-box" style="background:var(--candle-down)"></span>하락</span>
+      <span class="key"><span class="swatch-wash"></span>백워데이션 상태(TS ≤ −1)</span>
+    </span></div>${p1}
+  <div class="panel-title">브이코 · ATM IV (%)
+    <span class="legend">
+      <span class="key"><span class="swatch-line" style="border-color:var(--series-vk)"></span>VKOSPI</span>
+      <span class="key"><span class="swatch-line" style="border-color:var(--series-iv)"></span>ATM IV 근월</span>
+    </span></div>${p2}
+  <div class="panel-title">TS_diff (%p)
+    <span class="legend">
+      <span class="key"><span class="swatch-box" style="background:var(--ts-neg)"></span>백워데이션(−)</span>
+      <span class="key"><span class="swatch-box" style="background:var(--ts-pos)"></span>콘탱고(+)</span>
+    </span></div>${p3}`;
+
+// ---------- table ----------
+const fmt = v => v == null ? '—' : v.toFixed(2);
+document.querySelector('#dtable tbody').innerHTML = DATA.date.map((d, i) =>
+  `<tr><td>${d}</td><td>${fmt(DATA.o[i])}</td><td>${fmt(DATA.h[i])}</td><td>${fmt(DATA.l[i])}</td><td>${DATA.s[i].toFixed(2)}</td><td>${fmt(DATA.ret[i])}</td><td>${fmt(DATA.iv[i])}</td><td>${fmt(DATA.vk[i])}</td><td>${fmt(DATA.ts[i])}</td><td>${DATA.ts[i] == null ? '—' : DATA.dte[i]}</td><td>${DATA.roll[i] ? '▽' : ''}</td></tr>`).join('');
+
+// ---------- crosshair + tooltip ----------
+const tip = document.getElementById('tip');
+const svgs = ['p1','p2','p3'].map(id => document.getElementById(id));
+function stateTag(i) {
+  if (DATA.ret[i] == null) return '';
+  const dir = DATA.ret[i] > 0 ? '상승' : '하락';
+  if (DATA.ts[i] == null) return `${dir} (옵션지표 미빌드)`;
+  const ts = BW[i] ? '백워' : '콘탱고';
+  const vk = DATA.dvk[i] == null ? '' : (DATA.dvk[i] > 0 ? '+VK상승' : '+VK하락');
+  return `${dir}+${ts}${vk}`;
+}
+function showAt(i, cx, cy) {
+  for (const svg of svgs) {
+    const cross = svg.querySelector('.cross');
+    cross.style.display = '';
+    const ln = cross.querySelector('line');
+    ln.setAttribute('x1', xAt(i)); ln.setAttribute('x2', xAt(i));
+  }
+  const dteTag = DATA.dte[i] <= 7 ? ' · ⚠만기근접' : '';
+  const ohlc = DATA.o[i] == null ? '—' : `${DATA.o[i].toFixed(1)} / ${DATA.h[i].toFixed(1)} / ${DATA.l[i].toFixed(1)} / ${DATA.c[i].toFixed(1)}`;
+  tip.innerHTML = `<div class="d">${DATA.date[i]}${DATA.roll[i] ? ' · 롤' : ''}</div>
+    <div class="row"><span>시/고/저/종</span><b>${ohlc}</b></div>
+    <div class="row"><span>일간</span><b>${DATA.ret[i] == null ? '—' : (DATA.ret[i] > 0 ? '+' : '') + DATA.ret[i].toFixed(2) + '%'}</b></div>
+    <div class="row"><span>ATM IV / 브이코</span><b>${DATA.iv[i] == null ? '—' : DATA.iv[i].toFixed(2)} / ${DATA.vk[i] == null ? '—' : DATA.vk[i].toFixed(2)}</b></div>
+    <div class="row"><span>TS_diff</span><b>${DATA.ts[i] == null ? '—' : (DATA.ts[i] > 0 ? '+' : '') + DATA.ts[i].toFixed(2) + '%p'}</b></div>
+    <div class="row"><span>잔존일</span><b>${DATA.ts[i] == null ? '—' : DATA.dte[i] + '일' + dteTag}</b></div>
+    <div class="state">상태: ${stateTag(i)}</div>`;
+  tip.style.display = 'block';
+  const tw = tip.offsetWidth, vw = window.innerWidth;
+  tip.style.left = Math.min(cx + 16, vw - tw - 10) + 'px';
+  tip.style.top = (cy + 18) + 'px';
+}
+function hideTip() { tip.style.display = 'none'; for (const svg of svgs) svg.querySelector('.cross').style.display = 'none'; }
+for (const svg of svgs) {
+  svg.addEventListener('mousemove', e => {
+    const rect = svg.getBoundingClientRect();
+    const fx = (e.clientX - rect.left) / rect.width * W;
+    let i = Math.round((fx - ML) / (plotW / N) - 0.5);
+    i = Math.max(0, Math.min(N - 1, i));
+    showAt(i, e.clientX, e.clientY);
+  });
+  svg.addEventListener('mouseleave', hideTip);
+}
+</script>
+</body>
+</html>
