@@ -7,7 +7,7 @@
 
 - 3층 구조: **계기판**(관측치·백분위) → **이상 탐지**(극단값 플래그) → **서술**(복수 후보 해석 병기)
 - 게이지 5종: IV 수준·변화 / 스큐 / 기간구조 / 미결제 분포 / VKOSPI
-- 최종 목표: 웹 대시보드
+- 최종 목표: 웹 대시보드 — **v1 달성 (2026-07-19, 아웃퍼포머 :8501)**
 
 ## 소유권 원칙 (Kane 생태계)
 
@@ -19,8 +19,11 @@
 - **OptGauge = 수식·검증·해석 계층** — 지표 수식 정본(metrics/normalize/composite), 검증 게이트
   (tests V1~V5 — LLV 잡의 선행 게이트), 서술(narrate)·메일, 문서 정본(명세서·해석노트) 소유.
   hillstorm(Wyckoff 엔진)과 같은 위상의 독립 프로젝트.
-- **대시보드 = StockPortfolio :8000 `/optgauge` 페이지** — LLV 게이지 parquet 읽기 전용 소비
-  + `core.claude.ask_claude` 해석 (다각도분석 패턴). 와이어프레임: docs/dashboard_wireframe.html
+- **대시보드 = 아웃퍼포머(homalone, Streamlit :8501) `app/pages/10_옵션게이지.py`**
+  **[확정 2026-07-19 Kane — StockPortfolio :8000 에서 변경, v1 구현·배포 완료 (homalone e2770fa)]**:
+  게이지 parquet 읽기 전용 소비 (현재 OptGauge `data/` 직접, LLV 이관 시 경로만 교체)
+  + 클로드 해석 (기본 = narrate 보고 재사용, 자유질문 = Messages API 직접 호출·Opus→Sonnet 폴백).
+  와이어프레임: docs/dashboard_wireframe.html
 - LLV 내부 모듈 직접 import 금지. 신규 데이터 수집 로직을 여기 만들지 말 것
   (수집 필요가 생기면 LLV 에 추가하고 여기서는 소비만).
 
