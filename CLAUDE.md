@@ -18,6 +18,12 @@
   **호출만** 하고 (수식·오케스트레이션 복제 금지 — indicator_calculator 의 hillstorm 규율과 동일),
   산출을 LLV `data/indicators/gauge_*.parquet` 에 저장. OptGauge 08:20 잡은 소비만
   (신선도 가드 → narrate → 메일). 소비자 공용 로더 = `optgauge.data_access.load_gauge()`.
+  **[저녁 잠정 체인 2026-07-20 Kane 확정]**: KRX 는 당일분을 저녁에 미게시(실측) →
+  LLV `evening_update`(19:00)가 KIS 종목별시세로 코스피200 옵션 전 만기 수집 →
+  `data/options_eve/opt_*.parquet` **잠정본** + 게이지 재산출 → OptGauge
+  `run_evening.sh`(19:30)가 [잠정·KIS] 메일 발송. **아침 KRX 확정본이 정본** —
+  data_access 가 정본 우선/잠정 폴백으로 자동 대체 (최신일 한정 리페인트 허용),
+  08:20 `verify_provisional.py` 가 잠정 vs 확정 비교 후 임계 초과 시 정정 메일.
 - **OptGauge = 수식·검증·해석 계층** — 지표 수식 정본(metrics/normalize/composite), 검증 게이트
   (tests V1~V5 — LLV 잡의 선행 게이트), 서술(narrate)·메일, 문서 정본(명세서·해석노트) 소유.
   hillstorm(Wyckoff 엔진)과 같은 위상의 독립 프로젝트.

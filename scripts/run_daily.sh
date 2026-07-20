@@ -33,5 +33,7 @@ print(f"게이지 신선도 OK: {last_gauge}")
 GUARD
   "$PY" scripts/narrate_daily.py
   "$PY" scripts/send_report.py
+  # 잠정(전날 저녁 KIS) vs 확정(KRX) 검증 — 임계 초과 시 정정 메일 (2026-07-20 도입)
+  "$PY" scripts/verify_provisional.py
   echo "=== 완료 $(date '+%F %T') ==="
 } >> "$LOG" 2>&1

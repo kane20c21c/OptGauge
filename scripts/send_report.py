@@ -71,6 +71,7 @@ def build_html_and_images(report_md: str, df: pd.DataFrame, i: int):
 
 def main() -> None:
     force = "--force" in sys.argv
+    provisional = "--provisional" in sys.argv  # 저녁 KIS 잠정 보고 (2026-07-20 도입)
 
     report_md = (PROJECT_ROOT / "output" / "daily_report.md").read_text(encoding="utf-8")
     m = re.search(r"^# OptGauge 일일 보고 — (\d{4}-\d{2}-\d{2})", report_md, re.M)
@@ -89,11 +90,18 @@ def main() -> None:
     i = int(idx[0])
 
     flags = re.search(r"^- 플래그: (.+)$", report_md, re.M)
-    subject = f"[OptGauge] 일일 보고 {report_date}"
+    tag = "일일 보고(잠정·KIS)" if provisional else "일일 보고"
+    subject = f"[OptGauge] {tag} {report_date}"
     if flags and flags.group(1).strip() != "플래그 없음":
         subject += f" · {flags.group(1).strip()}"
 
     html, images = build_html_and_images(report_md, df, i)
+    if provisional:
+        badge = ('<div style="background:#FFF3E0;border:1px solid #E8710A;color:#8a4500;'
+                 'border-radius:8px;padding:8px 12px;margin:0 0 12px;font-size:13px;">'
+                 '⚠ <b>잠정 보고</b> — KIS 저녁 수집(당일) 기반. '
+                 '내일 아침 KRX 확정본으로 검증되며, 주요 지표 불일치 시 정정 메일이 발송됩니다.</div>')
+        html = html.replace('">', '">' + badge, 1)
 
     load_env()
     user = get_env("GMAIL_USER", required=True)

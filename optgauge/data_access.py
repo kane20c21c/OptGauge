@@ -13,26 +13,36 @@ import pandas as pd
 
 LLV_PATH = Path(os.getenv("LLV_PATH", str(Path.home() / "DriveForALL" / "StoLab" / "longlivevault")))
 OPT_DIR = LLV_PATH / "data" / "options"
+OPT_EVE_DIR = LLV_PATH / "data" / "options_eve"  # KIS 저녁 잠정본 (2026-07-20 도입)
 IDX_DIR = LLV_PATH / "data" / "ohlcv" / "tickers"
 GAUGE_DIR = LLV_PATH / "data" / "indicators"  # 게이지 산출 보관 (2026-07-20 LLV 이관)
 
 
+def _dates_in(d: Path) -> set[str]:
+    return {p.stem[4:] for p in d.glob("opt_*.parquet") if len(p.stem) == 12}
+
+
 def list_opt_dates() -> list[str]:
-    """저장된 옵션 일별 parquet 의 날짜 목록 (YYYYMMDD, 오름차순).
+    """옵션 일별 parquet 날짜 목록 (YYYYMMDD, 오름차순) — 정본 ∪ 저녁 잠정본.
+
+    잠정→확정 정책 (2026-07-20 Kane 확정): KIS 저녁 잠정본(options_eve)은
+    KRX 확정본(options)에 같은 날짜가 없을 때만 목록에 포함 — 다음날 아침
+    확정본이 도착하면 자동 대체된다 (최신일 한정 리페인트 허용, CLAUDE.md).
 
     비고: 이 목록 자체가 '데이터가 존재하는 거래일' — 프로토타입에서는
     잔존만기 거래일 수 근사에 np.busday_count 를 쓰고(V3 게이트에서 정밀화),
     수집 갭 감지에 이 목록을 쓴다.
     """
-    return sorted(p.stem[4:] for p in OPT_DIR.glob("opt_*.parquet") if len(p.stem) == 12)
+    return sorted(_dates_in(OPT_DIR) | _dates_in(OPT_EVE_DIR))
 
 
 def load_opt_day(date: str) -> pd.DataFrame:
-    """해당 일자의 옵션 일별 parquet (LLV option_store 스키마)."""
-    path = OPT_DIR / f"opt_{date}.parquet"
-    if not path.exists():
-        return pd.DataFrame()
-    return pd.read_parquet(path)
+    """해당 일자의 옵션 일별 parquet — KRX 정본 우선, 없으면 KIS 저녁 잠정본."""
+    for d in (OPT_DIR, OPT_EVE_DIR):
+        path = d / f"opt_{date}.parquet"
+        if path.exists():
+            return pd.read_parquet(path)
+    return pd.DataFrame()
 
 
 def load_index(ticker: str) -> pd.DataFrame:
