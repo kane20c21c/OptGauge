@@ -8,7 +8,13 @@
   ③ 게이지 지표: compute_day(잠정) vs compute_day(확정) — ATM_IV/Skew/TS_diff/PCR
   ④ 임계 초과 시 정정 메일 발송 (MorningBrief SMTP 재사용)
 잠정본이 없는 날은 조용히 종료 (저녁 체인 도입 전 날짜·수집 실패일).
-임계 초기값(2026-07-20): ATM_IV 0.5%p / Skew 0.3%p / TS 0.3%p / PCR 0.03 — 실측 후 조정.
+
+임계 (2026-07-21 Kane 확정 — A안, 7/21 실측 반영):
+  KIS IV(hts_ints_vltl)는 KRX 확정 IV(마감 공식)와 **계통적으로 다름** —
+  거래 행 중앙 2.0%p·미거래 행 9.6%p 차 (7/20 급락일 실측: ATM_IV 8.0 /
+  Skew 2.7 / TS 0.7 — 이날은 플래그도 바뀌어 정정이 맞았음). OI·PCR 은 100% 일치.
+  → 통상 계통 편차는 통과시키고 플래그가 흔들릴 수준만 정정: ATM_IV 3.0 /
+  Skew 1.5 / TS 1.0 / PCR 0.03(일치 실측이라 타이트 유지).
 """
 from __future__ import annotations
 
@@ -29,7 +35,7 @@ sys.path.insert(0, str(MORNINGBRIEF))
 from optgauge.data_access import OPT_DIR, OPT_EVE_DIR, load_index
 from optgauge.metrics import compute_day
 
-THRESHOLDS = {"ATM_IV": 0.5, "Skew": 0.3, "TS_diff": 0.3, "PCR_OI_all": 0.03}
+THRESHOLDS = {"ATM_IV": 3.0, "Skew": 1.5, "TS_diff": 1.0, "PCR_OI_all": 0.03}
 
 
 def _parse(raw: pd.DataFrame) -> pd.DataFrame:

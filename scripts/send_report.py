@@ -107,8 +107,10 @@ def main() -> None:
     if provisional:
         badge = ('<div style="background:#FFF3E0;border:1px solid #E8710A;color:#8a4500;'
                  'border-radius:8px;padding:8px 12px;margin:0 0 12px;font-size:13px;">'
-                 '⚠ <b>잠정 보고</b> — KIS 저녁 수집(당일) 기반. '
-                 '내일 아침 KRX 확정본으로 검증되며, 주요 지표 불일치 시 정정 메일이 발송됩니다.</div>')
+                 '⚠ <b>잠정 보고</b> — KIS 저녁 수집(당일) 기반. OI·PCR 은 확정급, '
+                 'IV 계열(ATM IV·Skew·TS)은 KIS 계통 산출이라 아침 KRX 확정과 '
+                 '±수%p 차이가 날 수 있습니다. 내일 아침 확정 검증에서 '
+                 '임계 초과 시 정정 메일이 발송됩니다.</div>')
         html = html.replace('">', '">' + badge, 1)
 
     load_env()
