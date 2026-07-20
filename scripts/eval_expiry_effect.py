@@ -14,6 +14,7 @@ import pandas as pd, numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from optgauge.metrics import second_thursday
+from optgauge.data_access import load_gauge
 
 C_IV, C_VK, C_RV, C_RVF = "#ef5350", "#999999", "#1976D2", "#7B1FA2"
 C_NEUT, C_ALERT, C_SKEW, C_S, C_EXP = "#666666", "#E8710A", "#00897B", "#333333", "#1976D2"
@@ -57,7 +58,7 @@ def event_study(df):
     print(f"기준선 ΔVK 평균 {b.mean():+.3f} (음수 {(b<0).mean():.0%}) | 만기일 {v0.mean():+.3f}±{se:.3f} (t≈{v0.mean()/se:+.1f})")
 
 
-df = pd.read_parquet(PROJECT_ROOT / 'data' / 'gauge_layer_b.parquet').sort_values('Date').reset_index(drop=True)
+df = load_gauge()  # LLV data/indicators (2026-07-20 이관)
 event_study(df)
 
 d = df[df['Date'] >= '2026-01-01'].reset_index(drop=True)

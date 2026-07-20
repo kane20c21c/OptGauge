@@ -27,7 +27,8 @@ VARIANTS = {
 
 
 def main() -> None:
-    df = pd.read_parquet(PROJECT_ROOT / "data" / "gauge_daily.parquet")
+    from optgauge.data_access import load_gauge
+    df = load_gauge("a")  # LLV data/indicators (2026-07-20 이관)
 
     covid = df[(df["Date"] >= "2020-02-15") & (df["Date"] <= "2020-05-31")]
     calm = df[(df["Date"] >= "2021-01-01") & (df["Date"] <= "2021-12-31")]

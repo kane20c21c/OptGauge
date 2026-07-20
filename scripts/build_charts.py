@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """게이지 시계열 검토용 차트 (plotly HTML).
 
-data/gauge_daily.parquet → output/gauge_overview.html
+LLV data/indicators/gauge_daily.parquet → output/gauge_overview.html
 프로토타입 검토 목적 — 대시보드(3단계) 이전의 임시 산출물.
 """
 from __future__ import annotations
@@ -16,8 +16,7 @@ from plotly.subplots import make_subplots
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-DATA = PROJECT_ROOT / "data" / "gauge_daily.parquet"
-OUT = PROJECT_ROOT / "output"
+OUT = PROJECT_ROOT / "output"  # 데이터원 = LLV data/indicators (2026-07-20 이관)
 
 UP = "#ef5350"    # Kane 표기 규칙: 상승/증가 = 빨강
 DOWN = "#1976D2"  # 하락/감소 = 파랑
@@ -25,7 +24,8 @@ NEUTRAL = "#666666"
 
 
 def main() -> None:
-    df = pd.read_parquet(DATA)
+    from optgauge.data_access import load_gauge
+    df = load_gauge("a")  # LLV data/indicators (2026-07-20 이관)
     df = df[df["ATM_IV"].notna() | df["VK"].notna()]
 
     fig = make_subplots(

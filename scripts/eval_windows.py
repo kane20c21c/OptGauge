@@ -19,7 +19,8 @@ METRICS = ["ATM_IV", "VK", "Skew"]
 
 
 def main() -> None:
-    df = pd.read_parquet(PROJECT_ROOT / "data" / "gauge_layer_b.parquet")
+    from optgauge.data_access import load_gauge
+    df = load_gauge()  # LLV data/indicators (2026-07-20 이관)
     n_seg = (df["Date"].diff() > pd.Timedelta(days=12)).sum() + 1
     print(f"기간: {df['Date'].min().date()} ~ {df['Date'].max().date()} "
           f"({len(df)}일) | 세그먼트: {n_seg}")

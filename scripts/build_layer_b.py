@@ -22,18 +22,14 @@ from plotly.subplots import make_subplots
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from optgauge.normalize import add_layer_b, FLAG_HIGH
-from optgauge.composite import add_composite
-
-METRICS = ["ATM_IV", "Skew", "TS_diff", "PCR_OI_all", "VK", "VRP",
-           "VRP_fast"]  # 보조 (EWMA λ=0.90 조기경보 — 명세서 G1, 2026-07-18 Kane 편입 승인)
-WINDOWS = (60, 250)  # [확정 2026-07-18] 60 주력 + 250 보조, 120 제거 (명세서 §6)
+from optgauge.normalize import FLAG_HIGH
+from optgauge.pipeline import METRICS, WINDOWS, build_layer_b_df
+# METRICS·WINDOWS 정본은 optgauge/pipeline.py 로 이동 (2026-07-20 LLV 이관)
 
 
 def main() -> None:
     df = pd.read_parquet(PROJECT_ROOT / "data" / "gauge_daily.parquet")
-    df = add_layer_b(df, METRICS, WINDOWS)
-    df = add_composite(df)  # 복합 플래그 v0.2 — 8칸 상태 (State8/Struct_state/Struct_days)
+    df = build_layer_b_df(df)  # Layer B + 복합 플래그 v0.2 (정본: pipeline)
     df.to_parquet(PROJECT_ROOT / "data" / "gauge_layer_b.parquet", index=False)
 
     # ── 통계 1: 코로나 스트레스 구간(2020-03~04) 포화율 + 회복 시점 ──

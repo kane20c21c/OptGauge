@@ -33,6 +33,7 @@ sys.path.insert(0, str(MORNINGBRIEF))
 from lib.env_loader import load_env, get_env, get_recipients  # MorningBrief 공용 모듈
 
 import narrate_daily as nd  # 차트 빌더·md 파서 재사용
+from optgauge.data_access import load_gauge
 
 SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 465
 STATE = PROJECT_ROOT / "output" / ".last_sent"
@@ -81,8 +82,7 @@ def main() -> None:
         print(f"스킵: {report_date} 보고는 이미 발송됨 (새 데이터 없음 — --force 로 재발송 가능)")
         return
 
-    df = pd.read_parquet(PROJECT_ROOT / "data" / "gauge_layer_b.parquet")
-    df = df.sort_values("Date").reset_index(drop=True)
+    df = load_gauge()  # LLV data/indicators (2026-07-20 이관)
     idx = df.index[df["Date"] == pd.Timestamp(report_date)]
     if len(idx) == 0:
         raise RuntimeError(f"gauge_layer_b 에 보고일 없음: {report_date}")

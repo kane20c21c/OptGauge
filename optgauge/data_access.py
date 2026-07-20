@@ -14,6 +14,7 @@ import pandas as pd
 LLV_PATH = Path(os.getenv("LLV_PATH", str(Path.home() / "DriveForALL" / "StoLab" / "longlivevault")))
 OPT_DIR = LLV_PATH / "data" / "options"
 IDX_DIR = LLV_PATH / "data" / "ohlcv" / "tickers"
+GAUGE_DIR = LLV_PATH / "data" / "indicators"  # 게이지 산출 보관 (2026-07-20 LLV 이관)
 
 
 def list_opt_dates() -> list[str]:
@@ -39,5 +40,20 @@ def load_index(ticker: str) -> pd.DataFrame:
     path = IDX_DIR / f"{ticker}.parquet"
     if not path.exists():
         raise FileNotFoundError(f"지수 parquet 없음: {path}")
+    df = pd.read_parquet(path)
+    return df.sort_values("Date").reset_index(drop=True)
+
+
+def load_gauge(layer: str = "b") -> pd.DataFrame:
+    """LLV 보관 게이지 parquet — layer 'a'=gauge_daily, 'b'=gauge_layer_b.
+
+    [이관 2026-07-20] 일일 산출·보관 주체 = LLV (daily_update → optgauge_gauge).
+    소비자(narrate·메일·차트·평가 스크립트)는 이 로더만 사용.
+    """
+    name = "gauge_daily.parquet" if layer == "a" else "gauge_layer_b.parquet"
+    path = GAUGE_DIR / name
+    if not path.exists():
+        raise FileNotFoundError(
+            f"게이지 parquet 없음: {path} — LLV optgauge_gauge 잡 확인")
     df = pd.read_parquet(path)
     return df.sort_values("Date").reset_index(drop=True)

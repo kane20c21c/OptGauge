@@ -5,7 +5,8 @@
   - 인자 없으면 최신일.
   - output/daily_report.md   — 서술 (아침 브리핑 삽입용, 덮어쓰기)
   - output/daily_report.html — 게이지별 [서술 | 미니차트] 2단 레이아웃 (덮어쓰기)
-전제: data/gauge_layer_b.parquet 최신 (build_metrics → build_layer_b 선행).
+전제: LLV data/indicators/gauge_layer_b.parquet 최신 (LLV daily_update →
+optgauge_gauge 선행 — 2026-07-20 산출·보관 LLV 이관).
 """
 from __future__ import annotations
 
@@ -23,6 +24,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from optgauge.narrate import narrate, CPGAP_GATE
 from optgauge.metrics import second_thursday
+from optgauge.data_access import load_gauge
 
 CHART_WEEKS = 5  # 주 정렬 창 (Kane 지정 2026-07-18): 4주 전 월요일 ~ 이번 주 금요일 (25 거래슬롯)
 
@@ -300,8 +302,7 @@ p  { font-size: 0.85rem; color: #555; margin: 0.3em 0; }
 
 def main() -> None:
     date = sys.argv[1] if len(sys.argv) > 1 else None
-    df = pd.read_parquet(PROJECT_ROOT / "data" / "gauge_layer_b.parquet")
-    df = df.sort_values("Date").reset_index(drop=True)
+    df = load_gauge()  # LLV data/indicators (2026-07-20 이관)
     report = narrate(df, date)
 
     out_dir = PROJECT_ROOT / "output"

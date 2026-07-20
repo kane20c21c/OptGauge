@@ -13,15 +13,17 @@
 
 - **LLV(longlivevault) = 데이터 공급자 + 게이지 실행·보관** — 옵션/선물 일별 parquet(IV·OI 포함),
   KOSPI200/VKOSPI 지수. OptGauge 는 LLV `data_service` 진입점만 호출한다.
-  **[확정 2026-07-18 Kane — hillstorm 패턴 적용]**: 게이지 일일 계산의 실행·보관도 LLV 로 이관.
-  LLV 일일 잡이 `optgauge.metrics / normalize / composite` 를 **호출만** 하고 (수식 복제 금지 —
-  indicator_calculator 의 hillstorm 규율과 동일), 산출을 LLV `data/indicators/gauge_*.parquet` 에 저장.
+  **[이관 완료 2026-07-20 — hillstorm 패턴]**: LLV `daily_update`(08:01) 말미가
+  `scripts/optgauge_gauge.py` 로 pytest V1~V5 게이트 → `optgauge.pipeline.build_gauge()` 를
+  **호출만** 하고 (수식·오케스트레이션 복제 금지 — indicator_calculator 의 hillstorm 규율과 동일),
+  산출을 LLV `data/indicators/gauge_*.parquet` 에 저장. OptGauge 08:20 잡은 소비만
+  (신선도 가드 → narrate → 메일). 소비자 공용 로더 = `optgauge.data_access.load_gauge()`.
 - **OptGauge = 수식·검증·해석 계층** — 지표 수식 정본(metrics/normalize/composite), 검증 게이트
   (tests V1~V5 — LLV 잡의 선행 게이트), 서술(narrate)·메일, 문서 정본(명세서·해석노트) 소유.
   hillstorm(Wyckoff 엔진)과 같은 위상의 독립 프로젝트.
 - **대시보드 = 아웃퍼포머(homalone, Streamlit :8501) `app/pages/10_옵션게이지.py`**
   **[확정 2026-07-19 Kane — StockPortfolio :8000 에서 변경, v1 구현·배포 완료 (homalone e2770fa)]**:
-  게이지 parquet 읽기 전용 소비 (현재 OptGauge `data/` 직접, LLV 이관 시 경로만 교체)
+  게이지 parquet 읽기 전용 소비 (LLV `data/indicators/` — 2026-07-20 이관 완료)
   + 클로드 해석 (기본 = narrate 보고 재사용, 자유질문 = Messages API 직접 호출·Opus→Sonnet 폴백).
   와이어프레임: docs/dashboard_wireframe.html
 - LLV 내부 모듈 직접 import 금지. 신규 데이터 수집 로직을 여기 만들지 말 것
@@ -52,6 +54,9 @@ OptGauge/
 ├── optgauge/                  # 패키지 (2단계에서 생성)
 │   ├── metrics.py             # Layer A: 지표 계산
 │   ├── normalize.py           # Layer B: 백분위·z-score·플래그
+│   ├── composite.py           # 복합 플래그 (State8/Struct_state)
+│   ├── pipeline.py            # 빌드 오케스트레이션 정본 (LLV 잡 진입점 build_gauge)
+│   ├── data_access.py         # LLV parquet 읽기 (load_gauge 포함)
 │   └── narrate.py             # Layer C: 서술 템플릿
 ├── notebooks/                 # 프로토타입/실증 비교
 └── tests/
