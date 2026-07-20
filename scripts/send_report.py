@@ -42,9 +42,18 @@ PNG_W, PNG_SCALE = 640, 2
 GAUGE_TITLES = ["G1", "G2", "G3", "G4", "G5"]
 
 
+DASHBOARD_URL = "http://100.68.171.87:8501"  # 아웃퍼포머 (Tailscale — 맥미니)
+
+
 def build_html_and_images(report_md: str, df: pd.DataFrame, i: int):
-    """(본문 HTML, [(cid, png_bytes)]) — 게이지별 서술 + cid 이미지."""
-    head_md, section_mds, footer_md = nd.split_report(report_md)
+    """(본문 HTML, [(cid, png_bytes)]) — 요약 + G1 차트 1장.
+
+    [슬림화 2026-07-20 Kane]: 게이지별 상세 서술·차트(KOSPI·G2~G5)는 메일에서
+    제거하고 대시보드('전체 게이지 보고' 펼침 = daily_report.html)로 이동.
+    본문 = 헤드라인 요약 + G1(ATM IV/RV/VRP) 차트 + 원칙 푸터 + 대시보드 링크.
+    전체 상세는 첨부 daily_report.html 로 계속 제공.
+    """
+    head_md, _section_mds, footer_md = nd.split_report(report_md)
     images: list[tuple[str, bytes]] = []
 
     def png(fig, cid):
@@ -57,15 +66,14 @@ def build_html_and_images(report_md: str, df: pd.DataFrame, i: int):
              f'\'Noto Sans KR\',sans-serif;color:#222;max-width:680px;margin:0 auto;'
              f'line-height:1.5;font-size:14px;">',
              nd.md_to_html(head_md),
-             png(nd.fig_kospi(df, i), "kospi"),
-             "<h2>게이지 상세</h2>"]
-    for k, sec_md in enumerate(section_mds):
-        parts.append(nd.md_to_html(sec_md))
-        if k < len(nd.FIG_BUILDERS):
-            parts.append(png(nd.FIG_BUILDERS[k](df, i), f"g{k + 1}"))
-    parts.append(f"<hr>{nd.md_to_html(footer_md)}")
-    parts.append('<p style="color:#94a3b8;font-size:12px;">OptGauge · 자동 발송 '
-                 '(인터랙티브 차트는 첨부 daily_report.html)</p></div>')
+             png(nd.FIG_BUILDERS[0](df, i), "g1"),  # G1 — ATM IV/RV/VRP
+             f"<hr>{nd.md_to_html(footer_md)}",
+             f'<p style="margin:14px 0 4px;"><a href="{DASHBOARD_URL}" '
+             f'style="display:inline-block;background:#1976D2;color:#ffffff;'
+             f'text-decoration:none;border-radius:8px;padding:8px 14px;font-size:13px;">'
+             f'전체 보고 보기 — 아웃퍼포머 대시보드</a></p>',
+             '<p style="color:#94a3b8;font-size:12px;">OptGauge · 자동 발송 · '
+             '게이지 상세(설명+그래프)는 대시보드 또는 첨부 daily_report.html</p></div>']
     return "".join(parts), images
 
 
