@@ -94,9 +94,16 @@ def _week_range(report_date: pd.Timestamp) -> tuple[pd.Timestamp, pd.Timestamp]:
 
 
 def _window(df: pd.DataFrame, i: int) -> pd.DataFrame:
+    """주 정렬 창 데이터 — 주중 휴장일은 NaN 행으로 삽입.
+
+    (2026-07-23 Kane) x축은 거래일(월~금)만 등간격 — 토·일은 _axis_5w 의
+    rangebreak 로 제거하고, 주중 휴장일은 축 슬롯을 유지한 채 데이터만 공백
+    (connectgaps=False 라인이 NaN 에서 끊겨 빈 슬롯으로 보임).
+    """
     start, _ = _week_range(df.at[i, "Date"])
     d = df[(df["Date"] >= start) & (df["Date"] <= df.at[i, "Date"])]
-    return d
+    bdays = pd.date_range(start, df.at[i, "Date"], freq="B")
+    return d.set_index("Date").reindex(bdays).rename_axis("Date").reset_index()
 
 
 def _expiries_in(start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]:
@@ -111,11 +118,17 @@ def _expiries_in(start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]:
 
 
 def _axis_5w(fig: go.Figure, df: pd.DataFrame, i: int) -> None:
-    """x축을 주 정렬 5주 고정창으로: 월요일 눈금 5개 + 만기일 세로 점선."""
+    """x축을 주 정렬 5주 고정창으로: 월요일 눈금 5개 + 만기일 세로 점선.
+
+    (2026-07-23 Kane) 토·일은 rangebreak 로 축에서 제거 → 거래일(월~금)만
+    등간격 (금→월 간격 왜곡 제거). 주중 휴장일은 _window 의 NaN 삽입과 한 쌍
+    으로 '축은 있고 데이터 없음'. 좌측 패딩은 브레이크 반영해 금요일 12시 기준.
+    """
     start, end = _week_range(df.at[i, "Date"])
     fig.update_xaxes(
-        range=[start - pd.Timedelta(hours=12), end + pd.Timedelta(hours=12)],
+        range=[start - pd.Timedelta(hours=60), end + pd.Timedelta(hours=12)],
         tick0=start, dtick=7 * 86400000, tickformat="%m/%d",
+        rangebreaks=[dict(bounds=["sat", "mon"])],
     )
     for e in _expiries_in(start, end):
         fig.add_vline(x=e, line=dict(color="#1976D2", width=1, dash="dash"))
