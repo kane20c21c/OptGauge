@@ -6,7 +6,7 @@ import pandas as pd
 
 from optgauge.composite import add_composite
 from optgauge.metrics import compute_day
-from optgauge.normalize import add_layer_b
+from optgauge.normalize import COND_MIN_PERIODS, add_conditional, add_layer_b
 from tests.conftest import make_chain
 
 
@@ -32,6 +32,48 @@ def test_layer_b_no_repaint():
     b = add_layer_b(full.copy(), ["X"], (60, 250)).iloc[:280]
     for c in ("X__P_full", "X__P_roll60", "X__P_roll250", "X__Z"):
         pd.testing.assert_series_equal(a[c], b[c], check_names=False)
+
+
+def _synthetic_ts(n: int = 400) -> pd.DataFrame:
+    """TS_diff + Front_DTE(만기 사이클 5→25 톱니) 합성 — 조건부 백분위 검증용."""
+    rng = np.random.default_rng(11)
+    dte = np.array([5 + (i % 21) for i in range(n)], dtype=float)
+    # 만기근접일수록 음편향·산포 확대 (실측 패턴 모사)
+    ts = rng.normal(-2.0 + 0.1 * dte, np.where(dte <= 8, 2.6, 1.6))
+    return pd.DataFrame({"Date": pd.bdate_range("2024-01-01", periods=n),
+                         "TS_diff": ts, "Front_DTE": dte})
+
+
+def test_conditional_no_repaint():
+    """조건부 백분위도 인과적 — 뒤에 데이터가 붙어도 과거 값이 안 바뀐다."""
+    full = _synthetic_ts()
+    cut = 340
+    a = add_conditional(full.iloc[:cut].copy())
+    b = add_conditional(full.copy()).iloc[:cut]
+    pd.testing.assert_series_equal(a["TS_diff__P_cond"], b["TS_diff__P_cond"],
+                                   check_names=False)
+
+
+def test_conditional_uses_only_same_bucket():
+    """P_cond 는 같은 버킷 표본만 대비한다 — 다른 버킷 값을 바꿔도 결과 불변."""
+    base = _synthetic_ts()
+    out_a = add_conditional(base.copy())
+    tampered = base.copy()
+    far = tampered["Front_DTE"] >= 17          # D17+ 버킷만 오염
+    tampered.loc[far, "TS_diff"] += 500.0
+    out_b = add_conditional(tampered)
+    near = base["Front_DTE"] <= 8              # D5-8 버킷의 값은 영향받지 않아야
+    pd.testing.assert_series_equal(out_a.loc[near, "TS_diff__P_cond"],
+                                   out_b.loc[near, "TS_diff__P_cond"],
+                                   check_names=False)
+
+
+def test_conditional_min_periods_gate():
+    """버킷 내 표본이 min_periods 미달이면 NaN — 적은 표본의 가짜 정밀도 금지."""
+    df = _synthetic_ts(n=60).copy()
+    out = add_conditional(df)
+    first = out.groupby("TS_diff__cond_bucket", observed=True).head(COND_MIN_PERIODS - 1)
+    assert first["TS_diff__P_cond"].isna().all()
 
 
 def test_composite_no_repaint():

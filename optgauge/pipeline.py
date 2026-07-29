@@ -26,7 +26,11 @@ logger = logging.getLogger("optgauge.pipeline")
 
 # Layer B 대상 지표·윈도 정본 (지표명세서 §6 — 60 주력 + 250 보조)
 METRICS = ["ATM_IV", "Skew", "TS_diff", "PCR_OI_all", "VK", "VRP",
-           "VRP_fast"]  # 보조 (EWMA λ=0.90 조기경보 — 명세서 G1, 2026-07-18 편입)
+           "VRP_fast",   # 보조 (EWMA λ=0.90 조기경보 — 명세서 G1, 2026-07-18 편입)
+           "VK_basis",   # 개선 1 (2026-07-29): 모델프리−ATM = OTM 꼬리 두께.
+                         # 값은 종전에도 산출됐으나 백분위가 없어 '이례 여부' 판정 불가였음.
+           "BF_05s"]     # 개선 2 (2026-07-29): 양 날개 볼록도 = "양극단 프리미엄"의 측정치.
+                         # BF·VK_basis 는 같은 대상을 서로 다른 기준으로 재는 교차검증 쌍.
 WINDOWS = (60, 250)
 
 

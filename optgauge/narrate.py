@@ -15,13 +15,29 @@ from optgauge.metrics import second_thursday
 # ── 가드 임계 (해석노트 근거) ─────────────────────────────
 ROLL_GUARD_DAYS = 5    # 함정 1: 롤/만기 전후 ±5거래일 OI 계열 왜곡 후보
 DTE_GUARD = 7          # 함정 5: 잔존 ≤7일 TS 는 만기근접 왜곡 후보
+TS_COND_DIVERGE = 15.0  # G3: 조건부 vs 무조건부 백분위 괴리 임계 (2026-07-29 신설).
+                        # 실측 분포(n=2,752): 중앙 2.2 · 90%ile 9.5 · 최대 22.3 → 15 에서 5.8% 발화.
+                        # 더 중요한 것은 **플래그 경계를 사이에 두고 갈리는 경우**(4.4%) — 별도 처리.
+FLAG_LO, FLAG_HI = 5.0, 95.0  # normalize 플래그 경계 미러 (판정 갈림 감지용)
 SHOCK_LOOKBACK = 20    # 함정 7: 직전 20거래일(=RV20 윈도) 내 쇼크 → 후행 잔상
 SHOCK_RET = 3.0        # 함정 7: 쇼크 판정 — 지수 일간 |수익률| ≥ 3%
 SHOCK_DIV = 10.0       # 함정 7: 쇼크 판정 — |ΔATM_IV| ≥ 10%p
 REGIME_SAT = 95.0      # §6: P_full ≥ 95 → 레짐 포화, 해석 주축 = 롤60·Z
 CPGAP_GATE = 8.0       # 함정 8: 차월 ATM C/P 괴리 ≥ 8%p → 저유동 산출 왜곡 후보 (초안 임계 —
                        # 실측: 정상 근월 1~4%p, 2026-07-10 왜곡일 차월 18.4%p. 백필 후 분포로 조정)
-BASIS_NOTE = 5.0       # G5: |VK−ATM| ≥ 5%p → 스마일 프리미엄 관측 병기 (초안 임계)
+BASIS_NOTE = 5.0       # G5: |VK−ATM| ≥ 5%p → 스마일 프리미엄 관측 병기 (초안 임계).
+                       # 개선 1 이후로는 백분위가 주(主), 이 절대 임계는 백분위 미가용 시 폴백.
+BF_BASIS_DIVERGE = 45.0  # G2: BF vs basis 롤60 백분위 괴리 임계 (초안).
+                         # 실측 분포(2026-07-29, n=1,719)의 80%ile = 46.7 → 45 채택.
+                         # ⚠ 두 지표의 백분위 상관은 +0.27 에 불과해 **평상시에도 25%ile포인트쯤은
+                         # 벌어진다**(중앙값 22.7). 임계를 낮게 잡으면 매일 울리는 노이즈가 된다 —
+                         # "오늘 특기사항 없음이 가장 흔해야 한다"(CLAUDE.md) 원칙 위배.
+DIV_SPIKE = 10.0       # G5: |ΔATM_IV| ≥ 10%p 인 날은 basis 가 기계적으로 눌린다 —
+                       # 실측(2026-07-29, n=15): ΔATM_IV>+10%p 구간의 basis 롤60 중앙 5%ile,
+                       # 음수비율 53% vs 평상시(|ΔATM|≤2%p) 중앙 48%ile·음수 1.6%.
+                       # corr(ΔATM_IV, basis) = −0.33. 무조건부 백분위만으로 판정 금지.
+BASIS_GUARD_PCT = 20.0  # G5: basis 조건부 가드 발화 문턱 (롤60 하위) — DIV_SPIKE 와 AND 조건.
+                        # 단독으로는 쓰지 않으므로 느슨해도 무방 (실측 결합 발화율 0.5%)
 
 
 # ── 포맷 헬퍼 ─────────────────────────────────────────────
@@ -187,6 +203,27 @@ def _g1(df, i, row) -> list[str]:
 def _g2(df, i, row) -> list[str]:
     L = [f"### G2 — 스큐 (풋−콜 IV 차 — 하방 보험의 상대 가격, vol-조정 ±0.5σ){_flag(row, 'Skew', True)}"]
     L.append(f"- Skew **{_f(row['Skew'])}%p** ({_pcts(row, 'Skew')}) · 스큐의 상대적 크기 {_f(row.get('Skew_norm'))} (Skew÷ATM IV — 레짐 간 비교용)")
+    # BF — 양 날개 볼록도 (개선 2, 2026-07-29). Skew(=−RR)는 좌우 '차이'만 보므로
+    # 양 날개가 함께 움직이는 변화를 원리적으로 못 본다. "양극단 프리미엄"의 측정치는 BF.
+    bf = row.get("BF_05s")
+    if "BF_05s" in row.index:   # 구버전 산출본에는 없음 → 줄 자체를 생략
+        L.append(f"- BF(양 날개 볼록도) **{_f(bf, '{:+.2f}')}%p** ({_pcts(row, 'BF_05s')})"
+                 f"{_flag(row, 'BF_05s')} · ΔBF {_f(row.get('dBF_05s'), '{:+.2f}')} — "
+                 "(IV_put+IV_call)/2 − ATM IV. **Skew 는 좌우 기울기(RR = −Skew), BF 는 양 날개 높이** — "
+                 "'양극단 프리미엄'을 재는 것은 BF 쪽")
+        # 교차검증은 **백분위**로 한다 (원값 부호가 아니라). BF 와 basis 는 단위·스케일이
+        # 다르므로 부호 일치는 정보가 거의 없다 — 실제로 2026-07-28 은 부호는 같았으나
+        # 롤60 백분위가 28 vs 3 으로 갈렸다 (±0.5σ 안쪽은 평범, 원격 꼬리만 얇음).
+        basis = row.get("VK_basis")
+        pb, pv = row.get("BF_05s__P_roll60"), row.get("VK_basis__P_roll60")
+        if _fin(bf) and _fin(basis) and _fin(pb) and _fin(pv):
+            L.append(f"- 교차검증(기준 2종, 롤60 백분위): BF {bf:+.2f}%p ({pb:.0f}%ile · ±0.5σ 두 점) vs "
+                     f"basis(VK−ATM) {basis:+.2f}%p ({pv:.0f}%ile · 모델프리 전 행사가 적분) — "
+                     + ("두 기준 정합 (꼬리 두께 판정 일치)" if abs(pb - pv) < BF_BASIS_DIVERGE else
+                        f"**⚠ 괴리 {abs(pb - pv):.0f}%ile포인트** (초안 임계 {BF_BASIS_DIVERGE:.0f}) — "
+                        "±0.5σ 안쪽과 전 행사가 적분이 다른 이야기. 후보: "
+                        f"① ±0.5σ **밖 원격 꼬리**에서만 형상 변화 ({'원격 꼬리가 얇음' if pv < pb else '원격 꼬리가 두꺼움'} 방향) "
+                        "② VKOSPI 산출 만기가중·시점 차이 ③ 해당 행사가 저유동. 단정 금지"))
     z = row.get("Skew__Z")
     if _fin(z) and abs(z) >= 1.5:
         d = "확대" if z > 0 else "축소"
@@ -216,6 +253,27 @@ def _g3(df, i, row) -> list[str]:
     dte = row.get("Front_DTE")
     L.append(f"- TS_diff **{_f(row['TS_diff'], '{:+.2f}')}%p** ({_pcts(row, 'TS_diff')}) · "
              f"**잔존 {_f(dte, '{:.0f}')}일** (함정 5: TS 는 항상 잔존만기 병기)")
+    # 조건부 백분위 (개선 4, 2026-07-29) — 무조건부 백분위는 만기근접 기계 효과와
+    # 진짜 단기 스트레스를 섞는다. 같은 DTE 대(帶)의 과거만 대비한 위치를 병기한다.
+    pc, bk = row.get("TS_diff__P_cond"), row.get("TS_diff__cond_bucket")
+    pfull = row.get("TS_diff__P_full")
+    if _fin(pc) and isinstance(bk, str) and _fin(pfull):
+        gap = abs(pc - pfull)
+        # 2단 판정: ① 플래그 경계(5/95)를 사이에 두고 갈리면 = 판정 자체가 뒤집히는 경우
+        #           ② 그 외엔 괴리 크기만 (실측 90%ile = 9.5 → 임계 15)
+        straddle = ((pfull <= FLAG_LO) != (pc <= FLAG_LO)) or ((pfull >= FLAG_HI) != (pc >= FLAG_HI))
+        if straddle:
+            tail = (f" — **⚠ 판정 갈림**: 무조건부는 {'극단' if (pfull <= FLAG_LO or pfull >= FLAG_HI) else '평범'}"
+                    f", 조건부는 {'극단' if (pc <= FLAG_LO or pc >= FLAG_HI) else '평범'}. "
+                    "**조건부 우선 판독** — 무조건부 쪽이 만기근접 기계 효과를 이상치로 오인한 후보 "
+                    "(함정 5). 실측: 이 갈림은 4.4% 발생, 그중 D5-8 버킷이 36%")
+        elif gap >= TS_COND_DIVERGE:
+            tail = (f" — 두 기준 괴리 {gap:.0f}%ile포인트 (실측 90%ile = 9.5). "
+                    "무조건부 위치의 일부는 만기근접 효과일 후보")
+        else:
+            tail = " — 두 기준 정합, 만기근접 효과로 설명되지 않는 위치"
+        L.append(f"- **조건부 위치**: 같은 잔존일수대({bk}) 과거 대비 **{pc:.0f}%ile** "
+                 f"(무조건부 전체 {pfull:.0f}%ile)" + tail)
     if _fin(dte) and dte <= DTE_GUARD:
         L.append(f"- ⚠ 가드(함정 5): 잔존 ≤{DTE_GUARD}일 — 만기근접 왜곡 후보 (음편향·산포 2배 구간, 플래그 신뢰도 ↓)")
     cpn, cpf = row.get("CPgap_next"), row.get("CPgap_front")
@@ -255,12 +313,35 @@ def _g4(df, i, row) -> list[str]:
 
 def _g5(df, i, row) -> list[str]:
     L = [f"### G5 — VKOSPI (거래소 공식 모델프리 변동성지수 — ATM IV 와의 괴리 = OTM 꼬리 보험료의 두께){_flag(row, 'VK', True)}"]
-    L.append(f"- VK **{_f(row['VK'])}** ({_pcts(row, 'VK')}) · ΔVK {_f(row.get('dVK'), '{:+.2f}')} · "
-             f"basis(VK−ATM) {_f(row.get('VK_basis'), '{:+.2f}')}%p (모델프리 vs ATM — 스마일 정보)")
+    L.append(f"- VK **{_f(row['VK'])}** ({_pcts(row, 'VK')}) · ΔVK {_f(row.get('dVK'), '{:+.2f}')}")
     basis = row.get("VK_basis")
-    if _fin(basis) and abs(basis) >= BASIS_NOTE:
+    # 개선 1 (2026-07-29): basis 에 다른 게이지와 동일한 백분위 체계 부여.
+    # 종전에는 절대 임계(±BASIS_NOTE)만 있어 "이 레짐에서 이례적인가"를 판정할 수 없었다.
+    L.append(f"- basis(VK−ATM) **{_f(basis, '{:+.2f}')}%p** ({_pcts(row, 'VK_basis')})"
+             f"{_flag(row, 'VK_basis')} — 모델프리(전 행사가 적분) vs ATM 한 점 = **OTM 꼬리 보험료의 상대 두께**")
+    bp60 = row.get("VK_basis__P_roll60")
+    bflag = row.get("VK_basis__flag")
+    bflag = bflag if isinstance(bflag, str) else ""
+    # 관측줄은 **기존 플래그 체계(95/5)에 묶는다** — 별도 임계를 새로 만들면 게이지마다
+    # 규칙이 갈라진다. 실측 발화율 17.5% 로 다른 게이지와 동일 대역
+    # (ATM_IV 20.4 · TS_diff 18.5 · VK 21.5 · VRP 18.2%). 2026-07-29 검증.
+    if _fin(basis) and ("HIGH" in bflag or "LOW" in bflag):
+        thick = "HIGH" in bflag
+        L.append(f"- 관측: basis 롤60 {_f(bp60, '{:.0f}')}%ile — 최근 레짐 대비 꼬리가 "
+                 f"{'두꺼운 쪽' if thick else '얇은 쪽'}. "
+                 "방향 가설: ① OTM 재가격 (꼬리 보험 수급) ② 스마일 형상 변화 (G2 의 BF 와 교차 확인) "
+                 "③ 산출 방식·시점 차이. 절대 부호만으로 단정 금지")
+    # 가드 — basis 는 ΔATM_IV 에 강하게 조건부다 (개선 1 적용 직후 실측으로 드러남).
+    # ATM 이 튄 날 basis 가 낮은 것은 '꼬리가 얇아졌다'가 아니라 'ATM 이 올라갔다'의 거울상일 수 있다.
+    div = row.get("dATM_IV")
+    if _fin(div) and abs(div) >= DIV_SPIKE and _fin(bp60) and bp60 <= BASIS_GUARD_PCT:
+        L.append(f"- ⚠ 가드(basis 조건부): 당일 ΔATM_IV {div:+.1f}%p (|Δ| ≥ {DIV_SPIKE:.0f}%p) — "
+                 "이 구간에서는 basis 하위 백분위가 **평상시보다 흔하다** "
+                 "(실측 n=15: 롤60 중앙 5%ile · 음수 53% vs 평상시 48%ile · 음수 1.6%). "
+                 "무조건부 백분위의 LOW 를 꼬리 신호로 단정하지 말 것 — ΔATM 조건부 분포 필요 (개선 4 계열)")
+    elif _fin(basis) and abs(basis) >= BASIS_NOTE:
         thick = basis > 0
-        L.append(f"- 관측(초안 임계 ±{BASIS_NOTE:.0f}%p): 모델프리가 ATM 대비 {basis:+.1f}%p "
+        L.append(f"- 관측(절대 임계 ±{BASIS_NOTE:.0f}%p · 백분위 미가용 시 폴백): 모델프리가 ATM 대비 {basis:+.1f}%p "
                  f"{'높음 — 스마일/꼬리 프리미엄 두꺼움 후보' if thick else '낮음 — 스마일 평탄/역전 후보'}. "
                  "방향 가설: ① OTM 재가격 (꼬리 보험 수요) ② 스마일 형상 변화 (G2 교차 확인) ③ 산출 방식·시점 차이")
     if _is_expiry_day(df, i):
@@ -297,7 +378,8 @@ def _summary_flags(row, metrics) -> str:
 
 
 # ── 본체 ──────────────────────────────────────────────────
-METRICS = ["ATM_IV", "Skew", "TS_diff", "PCR_OI_all", "VK", "VRP", "VRP_fast"]
+METRICS = ["ATM_IV", "Skew", "TS_diff", "PCR_OI_all", "VK", "VRP", "VRP_fast",
+           "VK_basis", "BF_05s"]  # 개선 1·2 (2026-07-29) — pipeline.METRICS 와 동일 집합 유지
 WEEKDAY_KR = ["월", "화", "수", "목", "금", "토", "일"]
 
 

@@ -309,6 +309,26 @@ def postprocess(df: pd.DataFrame, k200: pd.DataFrame | None = None) -> pd.DataFr
     for c in ("Skew", "Skew_9010", "Skew_9505", "Skew_vol1s", "Skew_vol05s", "Skew_vol05s_i"):
         df[c + "_norm"] = df[c] / df["ATM_IV"]
 
+    # G2 보조 — BF(Butterfly, 양 날개 볼록도) [개선 2, 2026-07-29]
+    # 정본 스큐와 **동일한 vol-조정 ±0.5σ 축**을 재사용해 기존 두 다리에서 산술 유도한다
+    # (델타 역산·보간 불필요 — 25δ 전환은 새 캘리브레이션이 필요하므로 별건).
+    #   RR(Risk Reversal) = IV_call05s − IV_put05s = **−Skew**  → 좌우 기울기(방향성 편향)
+    #   BF(Butterfly)     = (IV_put05s + IV_call05s)/2 − ATM_IV → 양 날개 볼록도
+    # ★ RR 은 기존 Skew 의 부호 반전에 불과하므로 **별도 컬럼을 만들지 않는다** (정본 단일 소유).
+    #   구조적 공백은 BF 하나였다: Skew 는 좌우 '차이'만 보므로 양 날개가 함께 오르내리는
+    #   변화(= "양극단 프리미엄")를 원리적으로 못 본다.
+    # basis(VK−ATM) 와 교차검증 쌍 — basis 는 모델프리(전 행사가 적분), BF 는 ±0.5σ 두 점 기준.
+    # 근거: docs/OptGauge_개선제안_20260728 §5·§6 개선 2.
+    if {"IV_put05s", "IV_call05s"} <= set(df.columns):
+        df["BF_05s"] = (df["IV_put05s"] + df["IV_call05s"]) / 2.0 - df["ATM_IV"]
+        df["BF_05s_norm"] = df["BF_05s"] / df["ATM_IV"]
+        df["dBF_05s"] = df["BF_05s"].diff()
+        df.loc[df["roll_flag"] | gap, "dBF_05s"] = np.nan  # 월물 불연속 + 수집 갭
+    else:
+        df["BF_05s"] = np.nan
+        df["BF_05s_norm"] = np.nan
+        df["dBF_05s"] = np.nan
+
     # RV20 (연율화 %) — 연속 지수 시계열에서 계산 후 날짜 매핑
     if k200 is not None and not k200.empty:
         k = k200.sort_values("Date").reset_index(drop=True)
