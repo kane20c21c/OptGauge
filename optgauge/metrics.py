@@ -213,10 +213,15 @@ def oi_metrics(base: pd.DataFrame, front: str | None, S: float) -> dict:
         tot = sub["OI"].sum()
         if tot > 0 and np.isfinite(S) and S > 0:
             center = (sub["Strike"] * sub["OI"]).sum() / tot
+            # 원시 중심 행사가도 저장 (개선 3, 2026-07-29) — 괴리는 S 로 나눈 뒤라
+            # 스팟 이동 성분과 포지션 이동 성분을 사후 분해할 수 없다. 원시값이 있어야
+            # postprocess 에서 Δ괴리를 두 성분으로 정확 분해할 수 있음.
+            out[f"OI_center_{side}"] = center
             out[f"OI_center_{side}_gap"] = (center - S) / S
             by_k = sub.groupby("Strike")["OI"].sum().sort_values(ascending=False)
             out[f"OI_conc_{side}"] = by_k.head(5).sum() / tot
         else:
+            out[f"OI_center_{side}"] = np.nan
             out[f"OI_center_{side}_gap"] = np.nan
             out[f"OI_conc_{side}"] = np.nan
 
@@ -349,6 +354,34 @@ def postprocess(df: pd.DataFrame, k200: pd.DataFrame | None = None) -> pd.DataFr
 
     df["dOI_total_pct"] = df["OI_total"].pct_change() * 100
     df.loc[gap, "dOI_total_pct"] = np.nan
+
+    # ── 개선 3 (2026-07-29): OI 중심 괴리에서 **스팟 이동 성분**을 분리 ──────────
+    # 문제: gap_t = C_t/S_t − 1 이므로 OI 분포(C)가 그대로여도 S 가 움직이면 gap 이 변한다.
+    #       2026-07-28(지수 −11.55%)의 "콜 +24.0% / 풋 −22.2% 바벨"이 실제 포지션 이동인지
+    #       스팟 이동의 잔상인지 구분할 수 없었다.
+    # ⚠ 문서 원안은 '델타/머니니스 버킷 재집계'였으나, 코드는 이미 (center−S)/S 로 S 상대화를
+    #   하고 있었다. 진짜 원인은 절대 행사가 기준이 아니라 **분모·기준점인 S 가 하루 만에
+    #   이동**하는 것 → 버킷 전환이 아니라 성분 분해가 맞는 처방 (Kane 승인 2026-07-29).
+    # 정확 분해 (항등식, 합 = Δgap):
+    #   C_t/S_t − C_0/S_0 = (C_t − C_0)/S_t  +  C_0·(1/S_t − 1/S_0)
+    #                        └ 포지션 성분      └ 스팟 성분
+    # 추가로 gap_prevS = (C_t − S_0)/S_0 — "지수가 안 움직였다면 오늘 OI 분포는 어디인가"
+    #   (전일 gap 과 직접 비교 가능한 스팟 고정 괴리).
+    for side in ("call", "put"):
+        c = df.get(f"OI_center_{side}")
+        if c is None:      # 구버전 산출본 호환 (원시 중심 미저장)
+            for suf in ("_gap_prevS", "_pos", "_spot"):
+                df[f"OI_center_{side}{suf}"] = np.nan
+            continue
+        s = df["S"]
+        c0, s0 = c.shift(1), s.shift(1)
+        df[f"OI_center_{side}_gap_prevS"] = (c - s0) / s0
+        df[f"OI_center_{side}_pos"] = (c - c0) / s          # 포지션 성분
+        df[f"OI_center_{side}_spot"] = c0 * (1.0 / s - 1.0 / s0)  # 스팟 성분
+        # 수집 갭만 마스킹 — 롤은 마스킹하지 않는다 (dOI_total_pct 와 동일 규약).
+        # 만기 통과로 한 월물 OI 가 사라지는 효과는 narrate 함정 1 가드가 담당.
+        for suf in ("_gap_prevS", "_pos", "_spot"):
+            df.loc[gap, f"OI_center_{side}{suf}"] = np.nan
 
     if "VK" in df.columns:
         df["dVK"] = df["VK"].diff()

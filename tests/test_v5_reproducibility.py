@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 from optgauge.composite import add_composite
-from optgauge.metrics import compute_day
+from optgauge.metrics import compute_day, postprocess
 from optgauge.normalize import COND_MIN_PERIODS, add_conditional, add_layer_b
 from tests.conftest import make_chain
 
@@ -74,6 +74,52 @@ def test_conditional_min_periods_gate():
     out = add_conditional(df)
     first = out.groupby("TS_diff__cond_bucket", observed=True).head(COND_MIN_PERIODS - 1)
     assert first["TS_diff__P_cond"].isna().all()
+
+
+def test_oi_drift_decomposition_identity():
+    """개선 3 — 포지션 성분 + 스팟 성분 = Δ(OI 중심 괴리). 항등식이 정확히 성립해야 한다."""
+    n = 40
+    rng = np.random.default_rng(3)
+    df = pd.DataFrame({
+        "Date": pd.bdate_range("2026-06-01", periods=n),
+        "S": 500 + np.cumsum(rng.normal(0, 12, n)),          # 지수는 크게 움직이고
+        "OI_center_call": 560 + np.cumsum(rng.normal(0, 1, n)),
+        "OI_center_put": 470 + np.cumsum(rng.normal(0, 1, n)),
+        "OI_total": np.full(n, 500_000),
+        "ATM_IV": np.full(n, 50.0), "FrontExpiry": ["202606"] * n,
+        "Skew": np.full(n, 3.0), "Skew_9010": np.full(n, 3.0),
+        "Skew_9505": np.full(n, 3.0), "Skew_vol1s": np.full(n, 3.0),
+        "Skew_vol05s": np.full(n, 3.0), "Skew_vol05s_i": np.full(n, 3.0),
+    })
+    out = postprocess(df)
+    for side in ("call", "put"):
+        gap = out[f"OI_center_{side}"] / out["S"] - 1.0
+        lhs = gap.diff()
+        rhs = out[f"OI_center_{side}_pos"] + out[f"OI_center_{side}_spot"]
+        ok = lhs.notna() & rhs.notna()
+        assert ok.sum() > 30
+        np.testing.assert_allclose(lhs[ok].values, rhs[ok].values, rtol=1e-12, atol=1e-12)
+
+
+def test_oi_drift_pure_spot_move():
+    """OI 분포가 전혀 안 변한 날은 Δ괴리가 **전부 스팟 성분** (포지션 성분 = 0)."""
+    n = 5
+    df = pd.DataFrame({
+        "Date": pd.bdate_range("2026-06-01", periods=n),
+        "S": [500.0, 442.0, 442.0, 430.0, 430.0],     # 지수만 급락
+        "OI_center_call": np.full(n, 560.0),          # OI 중심은 고정
+        "OI_center_put": np.full(n, 470.0),
+        "OI_total": np.full(n, 500_000), "ATM_IV": np.full(n, 50.0),
+        "FrontExpiry": ["202606"] * n,
+        "Skew": np.full(n, 3.0), "Skew_9010": np.full(n, 3.0),
+        "Skew_9505": np.full(n, 3.0), "Skew_vol1s": np.full(n, 3.0),
+        "Skew_vol05s": np.full(n, 3.0), "Skew_vol05s_i": np.full(n, 3.0),
+    })
+    out = postprocess(df)
+    for side in ("call", "put"):
+        pos = out[f"OI_center_{side}_pos"].iloc[1:]
+        np.testing.assert_allclose(pos.values, 0.0, atol=1e-12)
+        assert abs(out[f"OI_center_{side}_spot"].iloc[1]) > 1e-3   # 스팟 성분은 유의미
 
 
 def test_composite_no_repaint():

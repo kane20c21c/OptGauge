@@ -14,6 +14,8 @@ from optgauge.metrics import second_thursday
 
 # ── 가드 임계 (해석노트 근거) ─────────────────────────────
 ROLL_GUARD_DAYS = 5    # 함정 1: 롤/만기 전후 ±5거래일 OI 계열 왜곡 후보
+OI_DGAP_NOTE = 5.0     # G4: |Δ(OI 중심 괴리)| ≥ 5%p → 스팟 주도여도 경고 병기 (실측 상위 2.1%).
+                       # 평상시 |Δ괴리| 중앙 0.64%p · 90%ile 2.13%p (2026-07-29, n=2,7xx)
 DTE_GUARD = 7          # 함정 5: 잔존 ≤7일 TS 는 만기근접 왜곡 후보
 TS_COND_DIVERGE = 15.0  # G3: 조건부 vs 무조건부 백분위 괴리 임계 (2026-07-29 신설).
                         # 실측 분포(n=2,752): 중앙 2.2 · 90%ile 9.5 · 최대 22.3 → 15 에서 5.8% 발화.
@@ -292,6 +294,58 @@ def _g3(df, i, row) -> list[str]:
     return L
 
 
+def _oi_drift_lines(df, i, row) -> list[str]:
+    """개선 3 (2026-07-29) — Δ(OI 중심 괴리)를 포지션 성분 / 스팟 성분으로 분해 서술.
+
+    괴리 gap = C/S − 1 이므로 OI 분포 C 가 그대로여도 지수 S 가 움직이면 gap 이 변한다.
+    급변일의 '바벨'이 실제 포지션 이동인지 스팟 이동의 잔상인지를 갈라 준다.
+    """
+    if "OI_center_call_pos" not in row.index:
+        return []          # 구버전 산출본 — 줄 생략
+    out, verdicts = [], []
+    big_dgap = 0.0
+    for side, kor in (("call", "콜"), ("put", "풋")):
+        pos, spot = row.get(f"OI_center_{side}_pos"), row.get(f"OI_center_{side}_spot")
+        if not (_fin(pos) and _fin(spot)):
+            continue
+        tot = pos + spot
+        big_dgap = max(big_dgap, abs(tot) * 100)
+        share = abs(spot) / (abs(pos) + abs(spot)) * 100 if (abs(pos) + abs(spot)) > 0 else np.nan
+        lead = "스팟" if abs(spot) > abs(pos) else "포지션"
+        verdicts.append(lead)
+        out.append(f"  - {kor}: Δ괴리 {tot:+.1%} = 포지션 {pos:+.1%} + 스팟 {spot:+.1%} "
+                   f"(스팟 성분 비중 {_f(share, '{:.0f}')}% → **{lead} 주도**)")
+    if not out:
+        return []
+    head = ["- **Δ괴리 분해(개선 3)**: gap = C/S − 1 이라 지수가 움직이면 OI 분포가 그대로여도 "
+            "괴리가 변한다 — 두 성분으로 분리:"]
+    # ⚠ 결론줄 발화 규칙 (2026-07-29 실측): **스팟 주도가 정상 상태**다 —
+    # 콜 82.0% / 풋 78.7% 의 날에 스팟이 주도하고, |등락|<0.5% 인 평온한 날조차
+    # 스팟 비중 중앙 67.1%. 따라서 "스팟 주도"를 결론으로 매일 외치면 노이즈 발생기가 된다.
+    # 특기사항은 그 반대 = **포지션 주도**(콜·풋 동시 13.1%), 그리고 스팟 주도이면서
+    # 괴리 변화 자체가 커서 오독 위험이 큰 날(|Δ괴리| ≥ 5%p, 2.1%) 뿐.
+    tail = []
+    if verdicts and all(v == "포지션" for v in verdicts):
+        # ⚠ 함정 1 교차: 포지션 주도일은 롤 근처에 몰린다 (롤 ≤5일 46.9% vs 기준선 29.2%,
+        # 2026-07-29 실측). 만기 통과로 한 월물 OI 가 통째로 사라지는 것을 '재배치'로
+        # 읽으면 안 된다. 롤 근접 제외 시 포지션 주도는 13.1% → 9.8% 로 줄어든다.
+        dsr = _days_since_roll(df, i)
+        near_roll = dsr is not None and dsr <= ROLL_GUARD_DAYS
+        tail = ["  - ⇒ **포지션 성분 주도 — 특기사항** (실측 13.1%: 콜·풋 동시). "
+                "지수 이동으로 설명되지 않는 OI 재배치 후보. OI 는 매수·매도 쌍이므로 "
+                "방향 해석은 금지 (함정 6)"
+                + (f". **⚠ 단 롤 후 {dsr}거래일 — 만기 통과로 한 월물 OI 가 통째로 사라진 "
+                   "기계 효과일 수 있다 (함정 1). 포지션 주도일의 46.9%가 롤 ≤5일 구간에 "
+                   "몰려 있음(기준선 29.2%) — 이 구간의 '재배치' 판정은 신뢰도 ↓**"
+                   if near_roll else
+                   " (롤에서 충분히 떨어진 날 — 만기 리셋으로는 설명되지 않음)")]
+    elif verdicts and all(v == "스팟" for v in verdicts) and _fin(big_dgap) and big_dgap >= OI_DGAP_NOTE:
+        tail = [f"  - ⇒ ⚠ 괴리가 {big_dgap:.1f}%p 나 움직였는데 **거의 전부 지수 이동의 산물** "
+                f"(|Δ괴리| ≥ {OI_DGAP_NOTE:.0f}%p 는 상위 2.1%). 포지션 재배치로 읽지 말 것 — "
+                "이 규모의 변화가 서술에 잡히면 '바벨 형성' 같은 오독을 부른다"]
+    return head + out + tail
+
+
 def _g4(df, i, row) -> list[str]:
     L = [f"### G4 — 미결제 분포 (옵션 미결제약정의 지형 — 포지션 재고가 쌓인 곳){_flag(row, 'PCR_OI_all', True)}"]
     dte = row.get("Front_DTE")
@@ -302,6 +356,7 @@ def _g4(df, i, row) -> list[str]:
              f"풋 {_f(row.get('OI_center_put_gap'), '{:+.1%}')} · "
              f"상위5 집중도: 콜 {_f(row.get('OI_conc_call'), '{:.0%}')} / 풋 {_f(row.get('OI_conc_put'), '{:.0%}')} "
              f"(신규 상장 행사가 OI 극소는 정상 — 명세서 G4 ⚠)")
+    L += _oi_drift_lines(df, i, row)
     dsr = _days_since_roll(df, i)
     if dsr is not None and dsr <= ROLL_GUARD_DAYS:
         L.append(f"- ⚠ 가드(함정 1): 롤 후 {dsr}거래일 — OI·PCR 변화는 만기 리셋/신월물 재구축의 기계적 왜곡 후보. "
@@ -338,7 +393,9 @@ def _g5(df, i, row) -> list[str]:
         L.append(f"- ⚠ 가드(basis 조건부): 당일 ΔATM_IV {div:+.1f}%p (|Δ| ≥ {DIV_SPIKE:.0f}%p) — "
                  "이 구간에서는 basis 하위 백분위가 **평상시보다 흔하다** "
                  "(실측 n=15: 롤60 중앙 5%ile · 음수 53% vs 평상시 48%ile · 음수 1.6%). "
-                 "무조건부 백분위의 LOW 를 꼬리 신호로 단정하지 말 것 — ΔATM 조건부 분포 필요 (개선 4 계열)")
+                 "무조건부 백분위의 LOW 를 꼬리 신호로 단정하지 말 것. "
+                 "※ ΔATM 조건부 백분위는 **표본 부족으로 만들지 않기로 결정**(2026-07-29) — "
+                 "이 가드가 그 자리를 대신한다 (해석노트 함정 10)")
     elif _fin(basis) and abs(basis) >= BASIS_NOTE:
         thick = basis > 0
         L.append(f"- 관측(절대 임계 ±{BASIS_NOTE:.0f}%p · 백분위 미가용 시 폴백): 모델프리가 ATM 대비 {basis:+.1f}%p "
@@ -437,5 +494,5 @@ def narrate(df: pd.DataFrame, date=None) -> str:
     # ── 각주 ──
     L += ["---",
           "_원칙: 자세(posture) 기술 — 방향 예측·매매 권고 아님. 방향 가설은 병기이며 단정하지 않는다._",
-          "_근거: docs/지표명세서_v0.1.md §7 · docs/해석노트.md 함정 1~9_"]
+          "_근거: docs/지표명세서_v0.1.md §7 · docs/해석노트.md 함정 1~10 (+5-보충)_"]
     return "\n".join(L)
