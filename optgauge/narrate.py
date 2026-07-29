@@ -156,6 +156,32 @@ def vrp_state(df: pd.DataFrame, i: int) -> tuple[str, str]:
 
 
 # ── 게이지별 서술 ─────────────────────────────────────────
+def _liquidity_lines(row) -> list[str]:
+    """유동성 대리지표 (개선 5 대체안, 2026-07-29).
+
+    호가·LP 잔량 이력은 KIS 로 소급 불가(REST 호가 TR 에 날짜 인자 없음, 웹소켓은 실시간 전용)
+    → 가진 데이터로 유일하게 쓸 수 있는 대리지표가 CPgap_front 다.
+    근월 ATM 은 **가장 촘촘해야 할 지점**이라 여기서 콜·풋 IV 가 벌어지면 가격 마찰 신호.
+
+    ⚠ 정규화 금지 — CPgap/ATM_IV 로 나누면 급락일 중앙이 0.046 vs 평상 0.080 으로
+      **신호가 뒤집힌다**(명세서 G1-2). CPgap 은 IV 수준에 비례하지 않는 절대 마찰량이다.
+    """
+    if "CPgap_front" not in row.index:
+        return []
+    cg = row.get("CPgap_front")
+    if not _fin(cg):
+        return []
+    L = [f"- 유동성 대리(개선 5 대체): 근월 ATM C/P IV 괴리 **{cg:.2f}%p** "
+         f"({_pcts(row, 'CPgap_front')}){_flag(row, 'CPgap_front')} — "
+         "가장 촘촘해야 할 지점의 가격 마찰. 호가 스프레드 자체는 아님(대리)"]
+    fl = row.get("CPgap_front__flag")
+    if isinstance(fl, str) and "HIGH" in fl:
+        L.append("- 관측: 근월 ATM 마찰 확대 — 방향 가설: ① 호가 스프레드 확대(LP 후퇴 후보) "
+                 "② 산출 시점 비동시성 ③ 해당 행사가 일시적 저유동. "
+                 "**호가 데이터가 없어 ①을 단독 확정 불가** (실측: 지수 −3% 이하 날 중앙 2.85%p vs 평상 1.00%p)")
+    return L
+
+
 def _g1(df, i, row) -> list[str]:
     L = [f"### G1 — IV 수준·변화 (시장이 예상하는 지수의 연율 변동성 — 수준과 변화){_flag(row, 'ATM_IV', True)}{_flag(row, 'VRP', True)}{_flag(row, 'VRP_fast', True)}"]
     iv = row["ATM_IV"]
@@ -164,6 +190,7 @@ def _g1(df, i, row) -> list[str]:
              f"ΔIV {_f(row.get('dATM_IV'), '{:+.2f}')}%p · 월환산 ±{_f(monthly, '{:.1f}')}% (함정 3: 연율 변동성이지 이론가 대비 %가 아님)")
     L.append(f"- RV20 {_f(row['RV20'])} / RV_fast {_f(row['RV_fast'])} → "
              f"VRP **{_f(row['VRP'], '{:+.2f}')}%p** / VRP_fast {_f(row['VRP_fast'], '{:+.2f}')}%p")
+    L += _liquidity_lines(row)
 
     # 급변일 IV 무반응 관측 (2026-07-13 실측: -9.9% 급락에 ΔIV +0.4%p — 레벨 포화 레짐 지문 후보)
     if i > 0 and (row["Date"] - df.at[i - 1, "Date"]) <= pd.Timedelta(days=12):
@@ -438,7 +465,8 @@ def _summary_flags(row, metrics) -> str:
 
 # ── 본체 ──────────────────────────────────────────────────
 METRICS = ["ATM_IV", "Skew", "TS_diff", "PCR_OI_all", "VK", "VRP", "VRP_fast",
-           "VK_basis", "BF_05s"]  # 개선 1·2 (2026-07-29) — pipeline.METRICS 와 동일 집합 유지
+           "VK_basis", "BF_05s",     # 개선 1·2 (2026-07-29)
+           "CPgap_front"]            # 개선 5 대체안 — pipeline.METRICS 와 동일 집합 유지
 WEEKDAY_KR = ["월", "화", "수", "목", "금", "토", "일"]
 
 
@@ -496,5 +524,5 @@ def narrate(df: pd.DataFrame, date=None) -> str:
     # ── 각주 ──
     L += ["---",
           "_원칙: 자세(posture) 기술 — 방향 예측·매매 권고 아님. 방향 가설은 병기이며 단정하지 않는다._",
-          "_근거: docs/지표명세서_v0.1.md §7 · docs/해석노트.md 함정 1~10 (+5-보충)_"]
+          "_근거: docs/지표명세서_v0.1.md §7 · docs/해석노트.md 함정 1~12 (+5-보충)_"]
     return "\n".join(L)
