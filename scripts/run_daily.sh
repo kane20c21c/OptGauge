@@ -35,5 +35,10 @@ GUARD
   "$PY" scripts/send_report.py
   # 잠정(전날 저녁 KIS) vs 확정(KRX) 검증 — 임계 초과 시 정정 메일 (2026-07-20 도입)
   "$PY" scripts/verify_provisional.py
+  # 잠정본 잔존 감지 (해석노트 함정 11, 2026-07-29 도입).
+  # verify_provisional 은 확정본이 **도착했을 때** 비교하므로, 확정본이 아예 안 오면
+  # 침묵한다 — 2026-07-21 이 그 상태로 남아 미세구조 지표가 오염됐다.
+  # 여기서 실패시켜 trap on_error 로 알림이 나가게 한다 (복구 명령은 로그에 출력됨).
+  "$PY" scripts/check_provisional_stale.py
   echo "=== 완료 $(date '+%F %T') ==="
 } >> "$LOG" 2>&1
