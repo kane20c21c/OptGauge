@@ -31,6 +31,11 @@ CHART_WEEKS = 5  # 주 정렬 창 (Kane 지정 2026-07-18): 4주 전 월요일 ~
 # 색 규칙: 기존 차트 컨벤션 (UP 빨강 / DOWN 파랑 / NEUTRAL 회색, RV_fast = λ=0.90 보라)
 C_IV, C_RV, C_RVF = "#ef5350", "#1976D2", "#7B1FA2"
 C_NEUT, C_ALERT, C_SKEW, C_S = "#666666", "#E8710A", "#00897B", "#333333"
+# 날개 두께 (개선 6·7, 2026-08-04) — 대시보드 optgauge_view 와 같은 색 규약.
+# ⚠ Skew(C_SKEW 청록)와 **같은 도형에 들어가므로 청록 계열을 쓰면 안 된다**
+#   (초안에서 BF_blend30 을 C_SKEW 와 같은 색으로 뒀다가 범례 구분 불가 — 즉시 교체).
+# BF 근월 = 흐린 회청(보조·점선) · BF_blend30 = 보라(축 정본) · basis_adj = 호박(대비)
+C_BF_FRONT, C_BF_BLEND, C_BASIS_ADJ = "rgba(120,144,156,0.85)", "#5E35B1", "#E8A33D"
 C_UP, C_DOWN = "#e34948", "#2a78d6"  # 캔들·막대 K-관례 (regime_2026 차트 양식, Kane 2026-07-18)
 
 
@@ -174,11 +179,39 @@ def fig_g1(df, i):
 
 
 def fig_g2(df, i):
+    """G2 = 스큐(위) + 날개 두께(아래) 2단 — 개선 6·7 반영 (2026-08-04 Kane 지시).
+
+    아래 칸은 같은 대상(꼬리·날개 프리미엄)을 세 기준으로 잰 것을 겹쳐 그린다:
+      BF(근월 ±0.5σ, 점선) · BF_blend30(30일 축 정렬, 실선) · basis_adj(전 행사가 적분)
+    **BF_blend30 과 basis_adj 만 만기 축이 같다** — 둘이 벌어지면 만기 탓이 아니라
+    '두 점 vs 적분'의 설계 차이다 (명세서 §2-1).
+    BF_blend30 결측(차월 저유동)은 connectgaps=False 로 선을 끊는다 — 폴백 값을
+    그리지 않는 것이 narrate 규율(가짜 값 금지)과 일관.
+    """
     d = _window(df, i)
-    fig = go.Figure(go.Scatter(x=d["Date"], y=d["Skew"], name="Skew",
-                               line=dict(color=C_SKEW, width=1.6), connectgaps=False,
-                               hovertemplate="%{y:.2f}%p<extra>Skew</extra>"))
-    _mini_layout(fig, 200, legend=False)
+    x = d["Date"]
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                        vertical_spacing=0.08, row_heights=[0.5, 0.5])
+    fig.add_trace(go.Scatter(x=x, y=d["Skew"], name="Skew",
+                             line=dict(color=C_SKEW, width=1.6), connectgaps=False,
+                             hovertemplate="%{y:.2f}%p<extra>Skew</extra>"), 1, 1)
+    if "BF_05s" in d.columns:
+        fig.add_trace(go.Scatter(x=x, y=d["BF_05s"], name="BF(근월)",
+                                 line=dict(color=C_BF_FRONT, width=1.1, dash="dot"),
+                                 connectgaps=False,
+                                 hovertemplate="%{y:.2f}%p<extra>BF(근월)</extra>"), 2, 1)
+    if "BF_blend30" in d.columns:
+        fig.add_trace(go.Scatter(x=x, y=d["BF_blend30"], name="BF_blend30",
+                                 line=dict(color=C_BF_BLEND, width=1.7),
+                                 connectgaps=False,
+                                 hovertemplate="%{y:.2f}%p<extra>BF_blend30(30일)</extra>"), 2, 1)
+    if "VK_basis_adj" in d.columns:
+        fig.add_trace(go.Scatter(x=x, y=d["VK_basis_adj"], name="basis_adj",
+                                 line=dict(color=C_BASIS_ADJ, width=1.5),
+                                 connectgaps=False,
+                                 hovertemplate="%{y:.2f}%p<extra>basis_adj</extra>"), 2, 1)
+    fig.add_hline(y=0, row=2, col=1, line=dict(color="#999", width=0.7, dash="dash"))
+    _mini_layout(fig, 330, legend=True)
     _axis_5w(fig, df, i)
     return fig
 
