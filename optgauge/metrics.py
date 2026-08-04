@@ -5,11 +5,14 @@
 """
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date as DateType, datetime, timedelta
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger("optgauge.metrics")
 
 TARGET_UNDERLYING = "코스피200 옵션"   # U0-1: 월물만 (미니/위클리 제외)
 IV_MAX = 300.0                         # U0-6
@@ -244,7 +247,7 @@ def compute_day(raw: pd.DataFrame, S: float, t: DateType) -> tuple[dict, dict]:
         for k in ("ATM_IV", "K_atm", "Skew", "Skew_9010", "Skew_9505", "Skew_vol1s",
                   "Skew_vol05s", "Skew_vol05s_i", "IV_put05s", "IV_call05s",
                   "CPgap_front", "ATM_IV_next", "CPgap_next",
-                  "TS_diff", "TS_ratio"):
+                  "TS_diff", "TS_ratio", "Front_CDTE", "Next_CDTE"):
             row[k] = np.nan
         row.update(oi_metrics(base, front, S))
         return row, q
@@ -253,6 +256,9 @@ def compute_day(raw: pd.DataFrame, S: float, t: DateType) -> tuple[dict, dict]:
     row["ATM_IV"], row["K_atm"] = atm, k_atm
     row["CPgap_front"] = cpgap_f  # 근월 ATM C/P 괴리 — 함정 8 게이트의 비교 기준
     row["Front_DTE"] = remaining_busdays(t, front)  # 잔존 거래일 — TS/근월 IV 해석 컨텍스트 (해석노트 함정 5)
+    # 잔존 **달력일** — VKOSPI 30일 상수만기 보간 전용 (개선 6, 2026-08-04).
+    # ⚠ Front_DTE(거래일)와 혼용 금지: 보간 목표가 '30 달력일'이므로 축이 달라야 한다.
+    row["Front_CDTE"] = (second_thursday(front) - t).days
     row["Skew_9010"] = skew_fixed(valid, front, S, 0.90, 1.10)
     row["Skew_9505"] = skew_fixed(valid, front, S, 0.95, 1.05)
     row["Skew_vol1s"] = skew_voladj(valid, front, S, atm, t, k_sigma=1.0)
@@ -268,11 +274,13 @@ def compute_day(raw: pd.DataFrame, S: float, t: DateType) -> tuple[dict, dict]:
         row["CPgap_next"] = cpgap_n     # 차월 ATM C/P 괴리 — 함정 8 게이트
         row["TS_diff"] = atm_n - atm
         row["TS_ratio"] = atm_n / atm if np.isfinite(atm) and atm > 0 else np.nan
+        row["Next_CDTE"] = (second_thursday(nxt) - t).days
     else:
         row["ATM_IV_next"] = np.nan
         row["CPgap_next"] = np.nan
         row["TS_diff"] = np.nan
         row["TS_ratio"] = np.nan
+        row["Next_CDTE"] = np.nan
 
     row.update(oi_metrics(base, front, S))
     return row, q
@@ -387,4 +395,68 @@ def postprocess(df: pd.DataFrame, k200: pd.DataFrame | None = None) -> pd.DataFr
         df["dVK"] = df["VK"].diff()
         df.loc[gap, "dVK"] = np.nan
         df["VK_basis"] = df["VK"] - df["ATM_IV"]
+        df = _add_maturity_adjusted_basis(df)
+    return df
+
+
+# ──────────────────────────────────────────────
+# 개선 6 (2026-08-04) — 만기조정 basis
+# ──────────────────────────────────────────────
+VIX_TARGET_DAYS = 30.0   # VKOSPI 목표 만기 (달력일) — KRX 공표 사양
+
+def _add_maturity_adjusted_basis(df: pd.DataFrame) -> pd.DataFrame:
+    """VK_basis 의 **만기 사이클 오염**을 제거한 basis_adj 를 병기한다.
+
+    문제 (2026-08-04 Kane 질의로 발견):
+      VKOSPI 는 잔존 **30 달력일 상수만기** 지수로, 근월(≤30일)·차월(≥30일)을 보간해 만든다.
+      반면 VK_basis 는 VK − **근월** ATM 이다. 근월 잔존이 줄수록 지수의 무게중심은
+      차월로 옮겨가므로, 표면이 전혀 안 변해도 basis 가 기계적으로 이동한다.
+      왜곡분 ≈ **(1 − w) × TS_diff** (실측 검산 2026-08-03: 이론 −11.51 vs 실측 −11.16).
+
+    실증 (2015-01-02~2026-08-03, n=2,843 — 잔존일수 × 기간구조 레짐 층화):
+      Front_DTE 25일+ → 4~8일 구간에서 basis 중앙값이
+        · 백워데이션(TS_diff<0): 2.12 → **0.88** (하락)
+        · 콘탱고(TS_diff>0)   : 1.69 → **2.42** (상승)
+      **두 레짐에서 부호가 갈린다** = 만기 사이클 오염이 실재한다는 증거.
+      ⚠ 무조건부 상관은 +0.057 에 불과 — 두 레짐이 상쇄해 단순 상관으로는 안 잡힌다.
+      왜곡 크기는 |TS_diff| 에 비례하므로 평상시(중앙 −0.55~−1.00)엔 0.5 수준이나
+      2026 극단 레짐(−16.12)에서는 20배로 증폭된다 → 이제서야 문제가 드러난 이유.
+
+    설계 참고 (VIX 와의 차이): CBOE 는 2014년 SPX 위클리를 편입해 **잔존 23~37일**만
+      쓰도록 바꿔 이 문제를 구조적으로 제거했다 (월물 전용 시절 7~67일). VKOSPI 는
+      근월/차근월 **월물** + 만기 4거래일 전 조기 롤이라 근월 잔존이 ~7~30일을 오간다.
+      즉 백워데이션의 유무가 아니라 **보간 구간의 폭**이 원인이다.
+
+    산출:
+      w         = clip((n2 − 30)/(n2 − n1), 0, 1)   — 근월 가중 (n = 잔존 달력일)
+      blend30   = sqrt(w·ATM² + (1−w)·ATM_next²)    — 분산가중 (VIX 규약)
+      basis_adj = VK − blend30
+      basis_bias = VK_basis − basis_adj = blend30 − ATM  (naive 에 섞인 만기왜곡분)
+
+    폴백: 차월 ATM 결측이면 w=1 (근월 단독) — KRX 의 "근월 잔존 30일 초과 시 근월 단독"
+      규칙과 같은 형태. 이 경우 basis_adj == VK_basis 가 되며 Maturity_w=1 로 식별 가능.
+    """
+    need = {"ATM_IV", "ATM_IV_next", "Front_CDTE", "Next_CDTE"}
+    if not need <= set(df.columns):
+        logger.warning("만기조정 basis 건너뜀 — 컬럼 누락: %s", sorted(need - set(df.columns)))
+        for c in ("Maturity_w", "ATM_blend30", "VK_basis_adj", "VK_basis_bias"):
+            df[c] = np.nan
+        return df
+
+    n1 = pd.to_numeric(df["Front_CDTE"], errors="coerce")
+    n2 = pd.to_numeric(df["Next_CDTE"], errors="coerce")
+    atm, atm_n = df["ATM_IV"], df["ATM_IV_next"]
+
+    span = n2 - n1
+    w = (n2 - VIX_TARGET_DAYS) / span.where(span > 0)
+    w = w.clip(0.0, 1.0)
+    # 차월 결측 / 만기 순서 이상 → 근월 단독
+    w = w.where(atm_n.notna() & (span > 0), 1.0)
+    w = w.where(atm.notna(), np.nan)
+
+    blend = np.sqrt(w * atm**2 + (1.0 - w) * atm_n.fillna(atm)**2)
+    df["Maturity_w"] = w
+    df["ATM_blend30"] = blend
+    df["VK_basis_adj"] = df["VK"] - blend
+    df["VK_basis_bias"] = df["VK_basis"] - df["VK_basis_adj"]   # = blend − ATM
     return df

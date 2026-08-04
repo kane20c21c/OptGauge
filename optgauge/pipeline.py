@@ -29,6 +29,10 @@ METRICS = ["ATM_IV", "Skew", "TS_diff", "PCR_OI_all", "VK", "VRP",
            "VRP_fast",   # 보조 (EWMA λ=0.90 조기경보 — 명세서 G1, 2026-07-18 편입)
            "VK_basis",   # 개선 1 (2026-07-29): 모델프리−ATM = OTM 꼬리 두께.
                          # 값은 종전에도 산출됐으나 백분위가 없어 '이례 여부' 판정 불가였음.
+           "VK_basis_adj",  # 개선 6 (2026-08-04 Kane 승인): 만기조정 basis = VK − 30일 보간 ATM.
+                            # naive VK_basis 는 근월 잔존이 줄수록 (1−w)×TS_diff 만큼 기계적으로
+                            # 이동한다 (레짐별 부호 반전 실증 — metrics._add_maturity_adjusted_basis).
+                            # **서술의 주(主)는 이 컬럼**, naive 는 만기 컨텍스트와 함께 병기(진단용).
            "BF_05s",     # 개선 2 (2026-07-29): 양 날개 볼록도 = "양극단 프리미엄"의 측정치.
                          # BF·VK_basis 는 같은 대상을 서로 다른 기준으로 재는 교차검증 쌍.
            "CPgap_front"]  # 개선 5 대체안 (2026-07-29): 호가 데이터 없이 쓸 수 있는

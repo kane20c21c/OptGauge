@@ -2,7 +2,7 @@
 
 원칙 (해석노트 머리글): 지표는 방향 예측이 아니라 자세(posture) 기술.
 형식: 관측 사실 (지표·백분위) + 방향 가설 ①②③ 병기. 단정·매매 권고 금지.
-이 모듈은 해석노트 함정 1~12 를 자동 가드로 번역한 규칙 엔진이다 —
+이 모듈은 해석노트 함정 1~13 을 자동 가드로 번역한 규칙 엔진이다 —
 각 가드의 근거는 docs/해석노트.md 의 해당 함정 번호를 따른다.
 (함정 11 = 잠정본 잔존은 서술이 아니라 scripts/check_provisional_stale.py 담당,
  함정 12 = 비율 지표의 분모 이동은 설계 규율이라 특정 가드가 아닌 지표 정의에 반영됨)
@@ -44,6 +44,9 @@ DIV_SPIKE = 10.0       # G5: |ΔATM_IV| ≥ 10%p 인 날은 basis 가 기계적�
                        # (교체 전 n=15·중앙 5.0%ile·음수 53% 는 오염 수치 — 해석노트 함정 11)
 BASIS_GUARD_PCT = 20.0  # G5: basis 조건부 가드 발화 문턱 (롤60 하위) — DIV_SPIKE 와 AND 조건.
                         # 단독으로는 쓰지 않으므로 느슨해도 무방 (실측 결합 발화율 0.5%)
+BASIS_BIAS_NOTE = 2.0   # 함정 13 (개선 6, 2026-08-04): |naive − adj| = 만기왜곡분이 이 값을 넘으면
+                        # 고지. 왜곡분 ≈ (1−w)×TS_diff 이므로 평상시(|TS_diff| 중앙 ~0.5)엔 거의
+                        # 안 울리고, 2026 극단 레짐(2026-08-03 −11.16%p)에서만 발화한다.
 
 
 # ── 포맷 헬퍼 ─────────────────────────────────────────────
@@ -247,16 +250,20 @@ def _g2(df, i, row) -> list[str]:
         # 교차검증은 **백분위**로 한다 (원값 부호가 아니라). BF 와 basis 는 단위·스케일이
         # 다르므로 부호 일치는 정보가 거의 없다 — 실제로 2026-07-28 은 부호는 같았으나
         # 롤60 백분위가 28 vs 3 으로 갈렸다 (±0.5σ 안쪽은 평범, 원격 꼬리만 얇음).
-        basis = row.get("VK_basis")
-        pb, pv = row.get("BF_05s__P_roll60"), row.get("VK_basis__P_roll60")
+        # 개선 6 (2026-08-04): 비교 상대를 **만기조정 basis** 로 교체. 종전에는 후보 ②
+        # "VKOSPI 만기가중 차이"가 늘 열려 있어 괴리를 해석할 수 없었다 — 이제 그 성분이
+        # basis_adj 에서 제거됐으므로 후보 ②는 잔여(날개의 만기 불일치)로 좁혀진다.
+        basis = row.get("VK_basis_adj")
+        pb, pv = row.get("BF_05s__P_roll60"), row.get("VK_basis_adj__P_roll60")
         if _fin(bf) and _fin(basis) and _fin(pb) and _fin(pv):
-            L.append(f"- 교차검증(기준 2종, 롤60 백분위): BF {bf:+.2f}%p ({pb:.0f}%ile · ±0.5σ 두 점) vs "
-                     f"basis(VK−ATM) {basis:+.2f}%p ({pv:.0f}%ile · 모델프리 전 행사가 적분) — "
+            L.append(f"- 교차검증(기준 2종, 롤60 백분위): BF {bf:+.2f}%p ({pb:.0f}%ile · 근월 ±0.5σ 두 점) vs "
+                     f"basis_adj {basis:+.2f}%p ({pv:.0f}%ile · 모델프리 전 행사가 적분·만기조정) — "
                      + ("두 기준 정합 (꼬리 두께 판정 일치)" if abs(pb - pv) < BF_BASIS_DIVERGE else
                         f"**⚠ 괴리 {abs(pb - pv):.0f}%ile포인트** (초안 임계 {BF_BASIS_DIVERGE:.0f}) — "
                         "±0.5σ 안쪽과 전 행사가 적분이 다른 이야기. 후보: "
                         f"① ±0.5σ **밖 원격 꼬리**에서만 형상 변화 ({'원격 꼬리가 얇음' if pv < pb else '원격 꼬리가 두꺼움'} 방향) "
-                        "② VKOSPI 산출 만기가중·시점 차이 ③ 해당 행사가 저유동. 단정 금지"))
+                        "② 날개의 만기 불일치 (BF=근월 전용 vs VK=30일 혼합 — ATM 축은 조정됐으나 날개 축은 미조정) "
+                        "③ 해당 행사가 저유동. 단정 금지"))
     z = row.get("Skew__Z")
     if _fin(z) and abs(z) >= 1.5:
         d = "확대" if z > 0 else "축소"
@@ -401,20 +408,39 @@ def _g5(df, i, row) -> list[str]:
     L = [f"### G5 — VKOSPI (거래소 공식 모델프리 변동성지수 — ATM IV 와의 괴리 = OTM 꼬리 보험료의 두께){_flag(row, 'VK', True)}"]
     L.append(f"- VK **{_f(row['VK'])}** ({_pcts(row, 'VK')}) · ΔVK {_f(row.get('dVK'), '{:+.2f}')}")
     basis = row.get("VK_basis")
+    # 개선 6 (2026-08-04): **주(主) 서술은 만기조정 basis**.
+    # VKOSPI 는 30 달력일 상수만기라 근월 잔존이 줄수록 무게중심이 차월로 옮겨간다 —
+    # naive basis(VK−근월ATM)는 표면이 안 변해도 (1−w)×TS_diff 만큼 기계적으로 이동한다.
+    adj = row.get("VK_basis_adj")
+    w = row.get("Maturity_w")
+    blend = row.get("ATM_blend30")
+    bias = row.get("VK_basis_bias")
+    if _fin(adj):
+        L.append(f"- **basis_adj(VK − 30일보간ATM) {_f(adj, '{:+.2f}')}%p** ({_pcts(row, 'VK_basis_adj')})"
+                 f"{_flag(row, 'VK_basis_adj')} — ★ 정본. 30일 보간 ATM {_f(blend)} "
+                 f"(근월 가중 {_f(w, '{:.0%}')} · 잔존 {_f(row.get('Front_CDTE'), '{:.0f}')}/"
+                 f"{_f(row.get('Next_CDTE'), '{:.0f}')} 달력일)")
     # 개선 1 (2026-07-29): basis 에 다른 게이지와 동일한 백분위 체계 부여.
     # 종전에는 절대 임계(±BASIS_NOTE)만 있어 "이 레짐에서 이례적인가"를 판정할 수 없었다.
-    L.append(f"- basis(VK−ATM) **{_f(basis, '{:+.2f}')}%p** ({_pcts(row, 'VK_basis')})"
-             f"{_flag(row, 'VK_basis')} — 모델프리(전 행사가 적분) vs ATM 한 점 = **OTM 꼬리 보험료의 상대 두께**")
-    bp60 = row.get("VK_basis__P_roll60")
-    bflag = row.get("VK_basis__flag")
+    L.append(f"- basis(VK−근월ATM) {_f(basis, '{:+.2f}')}%p ({_pcts(row, 'VK_basis')})"
+             f"{_flag(row, 'VK_basis')} — 참고·진단용 (만기 사이클 오염 포함)")
+    # 만기왜곡분 고지 — 두 basis 가 크게 갈리는 날은 naive 를 신호로 읽으면 안 된다.
+    if _fin(bias) and abs(bias) >= BASIS_BIAS_NOTE:
+        ts = row.get("TS_diff")
+        L.append(f"- ⚠ 가드(함정 13 — 만기 사이클): 두 basis 차이 **{bias:+.2f}%p** "
+                 f"= 지수 무게중심이 차월로 {_f(1 - w if _fin(w) else np.nan, '{:.0%}')} 쏠린 데서 오는 "
+                 f"**기계적 성분** (≈ (1−w)×TS_diff = {_f((1 - w) * ts if _fin(w) and _fin(ts) else np.nan, '{:+.2f}')}). "
+                 "표면 변화가 아니므로 naive basis 의 백분위·플래그를 꼬리 신호로 읽지 말 것")
+    bp60 = row.get("VK_basis_adj__P_roll60")
+    bflag = row.get("VK_basis_adj__flag")
     bflag = bflag if isinstance(bflag, str) else ""
     # 관측줄은 **기존 플래그 체계(95/5)에 묶는다** — 별도 임계를 새로 만들면 게이지마다
     # 규칙이 갈라진다. 실측 발화율 17.5% 로 다른 게이지와 동일 대역
     # (ATM_IV 20.4 · TS_diff 18.5 · VK 21.5 · VRP 18.2%). 2026-07-29 검증.
-    if _fin(basis) and ("HIGH" in bflag or "LOW" in bflag):
+    if _fin(adj) and ("HIGH" in bflag or "LOW" in bflag):
         thick = "HIGH" in bflag
-        L.append(f"- 관측: basis 롤60 {_f(bp60, '{:.0f}')}%ile — 최근 레짐 대비 꼬리가 "
-                 f"{'두꺼운 쪽' if thick else '얇은 쪽'}. "
+        L.append(f"- 관측: basis_adj 롤60 {_f(bp60, '{:.0f}')}%ile — 최근 레짐 대비 꼬리가 "
+                 f"{'두꺼운 쪽' if thick else '얇은 쪽'} (만기 효과 제거 후). "
                  "방향 가설: ① OTM 재가격 (꼬리 보험 수급) ② 스마일 형상 변화 (G2 의 BF 와 교차 확인) "
                  "③ 산출 방식·시점 차이. 절대 부호만으로 단정 금지")
     # 가드 — basis 는 ΔATM_IV 에 강하게 조건부다 (개선 1 적용 직후 실측으로 드러남).
@@ -427,9 +453,9 @@ def _g5(df, i, row) -> list[str]:
                  "무조건부 백분위의 LOW 를 꼬리 신호로 단정하지 말 것. "
                  "※ ΔATM 조건부 백분위는 **표본 부족으로 만들지 않기로 결정**(2026-07-29) — "
                  "이 가드가 그 자리를 대신한다 (해석노트 함정 10)")
-    elif _fin(basis) and abs(basis) >= BASIS_NOTE:
-        thick = basis > 0
-        L.append(f"- 관측(절대 임계 ±{BASIS_NOTE:.0f}%p · 백분위 미가용 시 폴백): 모델프리가 ATM 대비 {basis:+.1f}%p "
+    elif _fin(adj) and abs(adj) >= BASIS_NOTE:
+        thick = adj > 0
+        L.append(f"- 관측(절대 임계 ±{BASIS_NOTE:.0f}%p · 백분위 미가용 시 폴백): 모델프리가 30일보간 ATM 대비 {adj:+.1f}%p "
                  f"{'높음 — 스마일/꼬리 프리미엄 두꺼움 후보' if thick else '낮음 — 스마일 평탄/역전 후보'}. "
                  "방향 가설: ① OTM 재가격 (꼬리 보험 수요) ② 스마일 형상 변화 (G2 교차 확인) ③ 산출 방식·시점 차이")
     if _is_expiry_day(df, i):
@@ -467,8 +493,14 @@ def _summary_flags(row, metrics) -> str:
 
 # ── 본체 ──────────────────────────────────────────────────
 METRICS = ["ATM_IV", "Skew", "TS_diff", "PCR_OI_all", "VK", "VRP", "VRP_fast",
-           "VK_basis", "BF_05s",     # 개선 1·2 (2026-07-29)
+           "VK_basis", "VK_basis_adj", "BF_05s",   # 개선 1·2 (2026-07-29) · 개선 6 (2026-08-04)
            "CPgap_front"]            # 개선 5 대체안 — pipeline.METRICS 와 동일 집합 유지
+
+# 헤드라인 플래그 요약 전용 집합 — naive VK_basis 제외 (개선 6, 2026-08-04).
+# 컬럼·플래그는 그대로 산출·보관하되(진단용 병기), **요약 줄에는 올리지 않는다**:
+# 만기 사이클 오염이 섞인 플래그가 헤드라인에 뜨면 "꼬리가 얇다"로 오독된다 (함정 13).
+# G5 상세에는 여전히 두 줄 다 나온다 — 값을 숨기는 게 아니라 우선순위를 정하는 것.
+SUMMARY_METRICS = [m for m in METRICS if m != "VK_basis"]
 WEEKDAY_KR = ["월", "화", "수", "목", "금", "토", "일"]
 
 
@@ -488,7 +520,7 @@ def narrate(df: pd.DataFrame, date=None) -> str:
     L = [f"# OptGauge 일일 보고 — {d.date()} ({WEEKDAY_KR[d.weekday()]})", ""]
 
     # ── 요약 ──
-    L += ["## 요약", f"- {_headline(df, i, row)}", f"- 플래그: {_summary_flags(row, METRICS)}"]
+    L += ["## 요약", f"- {_headline(df, i, row)}", f"- 플래그: {_summary_flags(row, SUMMARY_METRICS)}"]
     st, sd = row.get("State8"), row.get("Struct_days")
     if isinstance(st, str) and st:
         tr, td = row.get("VK_trend"), row.get("VK_trend_days")
@@ -526,5 +558,5 @@ def narrate(df: pd.DataFrame, date=None) -> str:
     # ── 각주 ──
     L += ["---",
           "_원칙: 자세(posture) 기술 — 방향 예측·매매 권고 아님. 방향 가설은 병기이며 단정하지 않는다._",
-          "_근거: docs/지표명세서_v0.1.md §7 · docs/해석노트.md 함정 1~12 (+5-보충)_"]
+          "_근거: docs/지표명세서_v0.1.md §7 · docs/해석노트.md 함정 1~13 (+5-보충)_"]
     return "\n".join(L)
