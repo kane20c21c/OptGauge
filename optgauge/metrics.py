@@ -247,7 +247,8 @@ def compute_day(raw: pd.DataFrame, S: float, t: DateType) -> tuple[dict, dict]:
         for k in ("ATM_IV", "K_atm", "Skew", "Skew_9010", "Skew_9505", "Skew_vol1s",
                   "Skew_vol05s", "Skew_vol05s_i", "IV_put05s", "IV_call05s",
                   "CPgap_front", "ATM_IV_next", "CPgap_next",
-                  "TS_diff", "TS_ratio", "Front_CDTE", "Next_CDTE"):
+                  "TS_diff", "TS_ratio", "Front_CDTE", "Next_CDTE",
+                  "IV_put05s_next", "IV_call05s_next"):
             row[k] = np.nan
         row.update(oi_metrics(base, front, S))
         return row, q
@@ -275,12 +276,20 @@ def compute_day(raw: pd.DataFrame, S: float, t: DateType) -> tuple[dict, dict]:
         row["TS_diff"] = atm_n - atm
         row["TS_ratio"] = atm_n / atm if np.isfinite(atm) and atm > 0 else np.nan
         row["Next_CDTE"] = (second_thursday(nxt) - t).days
+        # 차월 ±0.5σ 다리 — 날개 축 30일 정렬용 (개선 7, 2026-08-04).
+        # 근월과 **동일한 vol-조정 축**을 차월에도 적용 (정본 스큐 규약 재사용).
+        # 실측 산출 가능률 95.3% (2015~2026) — 근월 71.5% 보다 높다: ±0.5σ 목표가
+        # √T 에 비례해 멀어지는 만큼 허용오차(±0.2σ)도 넓어져 스냅이 쉬워지기 때문.
+        ivp_n, ivc_n = skew_voladj_legs(valid, nxt, S, atm_n, t, k_sigma=0.5)
+        row["IV_put05s_next"], row["IV_call05s_next"] = ivp_n, ivc_n
     else:
         row["ATM_IV_next"] = np.nan
         row["CPgap_next"] = np.nan
         row["TS_diff"] = np.nan
         row["TS_ratio"] = np.nan
         row["Next_CDTE"] = np.nan
+        row["IV_put05s_next"] = np.nan
+        row["IV_call05s_next"] = np.nan
 
     row.update(oi_metrics(base, front, S))
     return row, q
@@ -459,4 +468,55 @@ def _add_maturity_adjusted_basis(df: pd.DataFrame) -> pd.DataFrame:
     df["ATM_blend30"] = blend
     df["VK_basis_adj"] = df["VK"] - blend
     df["VK_basis_bias"] = df["VK_basis"] - df["VK_basis_adj"]   # = blend − ATM
+    return _add_wing_blend(df, w, blend)
+
+
+CPGAP_NEXT_GATE = 8.0   # 개선 7: 차월 저유동 게이트 (해석노트 함정 8 의 임계 재사용).
+                        # 실측 발화율 전체 0.5% / **2026년 7.7%** — 2026 차월 유동성 급감
+                        # (OTM OI≥50 종목 중앙 53개(2025) → 26개, 거래량 7,906 → 1,407계약).
+                        # 이 날은 차월 ATM 자체를 못 믿으므로 차월 BF 도 오염된다.
+
+
+def _add_wing_blend(df: pd.DataFrame, w: pd.Series, blend: pd.Series) -> pd.DataFrame:
+    """날개 축 30일 정렬 — BF_blend30 (개선 7, 2026-08-04 Kane 승인).
+
+    문제 (개선 6 의 잔여): basis_adj 는 ATM 축을 30일로 맞췄지만, 교차검증 상대인
+    BF 는 여전히 **근월 ±0.5σ 두 점**이다. 2026-08-03 잔여 괴리 38%ile포인트의
+    유력 후보가 이 축 불일치였다 (명세서 §5-1 미해결 항목).
+
+    가중 — **vega 유사 가중** (단순 w 선형이 아님):
+      basis_adj = blend30(MF) − blend30(ATM) 인데 blend 는 분산가중이라
+      δblend ≈ (w·a·δa + (1−w)·b·δb) / blend  (a=근월ATM, b=차월ATM).
+      각 만기의 날개 프리미엄을 δ 로 보면 1차 근사로
+        BF_blend30 = (w·a·BF_front + (1−w)·b·BF_next) / blend
+      이것이 basis_adj 의 구성과 축이 맞는 비교량이다.
+      ※ 단순 선형(w·BF_f + (1−w)·BF_n)과의 차이는 작다 (2026-08-03: 5.53 vs 5.79) —
+        1차 근사임을 명시하고 vega 가중을 채택 (구성 일관성 우선).
+
+    저유동 처리 (Kane 결정 2026-08-04 — **결측 + 서술 고지**):
+      CPgap_next ≥ CPGAP_NEXT_GATE 인 날은 차월 ATM 이 신뢰 불가 → BF_blend30 = NaN.
+      값을 만들어 플래그로 감점하는 대신 아예 비운다 (U0-6 '가짜 값 금지'와 일관).
+      서술은 근월 BF 로 폴백하되 '날개 축 미정렬'을 명시한다.
+    """
+    if "BF_05s" not in df.columns:
+        for c in ("BF_05s_next", "BF_blend30", "BF_blend30_ok"):
+            df[c] = np.nan
+        return df
+
+    if {"IV_put05s_next", "IV_call05s_next"} <= set(df.columns):
+        df["BF_05s_next"] = ((df["IV_put05s_next"] + df["IV_call05s_next"]) / 2.0
+                             - df["ATM_IV_next"])
+    else:
+        logger.warning("BF_blend30 건너뜀 — 차월 ±0.5σ 다리 없음 (Layer A 재빌드 필요)")
+        df["BF_05s_next"] = np.nan
+
+    a, b = df["ATM_IV"], df["ATM_IV_next"]
+    bf_f, bf_n = df["BF_05s"], df["BF_05s_next"]
+    wing = (w * a * bf_f + (1.0 - w) * b * bf_n) / blend
+
+    cpgap_n = df.get("CPgap_next")
+    illiquid = cpgap_n.ge(CPGAP_NEXT_GATE) if cpgap_n is not None else pd.Series(False, index=df.index)
+    df["BF_blend30"] = wing.where(~illiquid.fillna(False))
+    # 축 정렬이 성립한 날만 True — 서술이 폴백 여부를 판정하는 단일 근거
+    df["BF_blend30_ok"] = df["BF_blend30"].notna()
     return df

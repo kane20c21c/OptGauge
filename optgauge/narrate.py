@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from optgauge.metrics import second_thursday
+from optgauge.metrics import CPGAP_NEXT_GATE, second_thursday
 
 # ── 가드 임계 (해석노트 근거) ─────────────────────────────
 ROLL_GUARD_DAYS = 5    # 함정 1: 롤/만기 전후 ±5거래일 OI 계열 왜곡 후보
@@ -250,20 +250,44 @@ def _g2(df, i, row) -> list[str]:
         # 교차검증은 **백분위**로 한다 (원값 부호가 아니라). BF 와 basis 는 단위·스케일이
         # 다르므로 부호 일치는 정보가 거의 없다 — 실제로 2026-07-28 은 부호는 같았으나
         # 롤60 백분위가 28 vs 3 으로 갈렸다 (±0.5σ 안쪽은 평범, 원격 꼬리만 얇음).
-        # 개선 6 (2026-08-04): 비교 상대를 **만기조정 basis** 로 교체. 종전에는 후보 ②
-        # "VKOSPI 만기가중 차이"가 늘 열려 있어 괴리를 해석할 수 없었다 — 이제 그 성분이
-        # basis_adj 에서 제거됐으므로 후보 ②는 잔여(날개의 만기 불일치)로 좁혀진다.
+        # 개선 6 (2026-08-04): 비교 상대를 **만기조정 basis** 로 교체 (ATM 축 정렬).
+        # 개선 7 (2026-08-04): 비교 주체도 **BF_blend30** 으로 교체 (날개 축 정렬).
+        #   → 두 축이 모두 맞으면 남는 괴리는 '±0.5σ 안쪽 두 점 vs 전 행사가 적분'
+        #     이라는 **설계상의 차이만** 남는다. 이제서야 원격 꼬리 해석이 가능해진다.
+        # 차월 저유동일(CPgap_next≥8%p)은 BF_blend30 이 결측 → 근월 BF 폴백 + 축 미정렬 고지.
         basis = row.get("VK_basis_adj")
-        pb, pv = row.get("BF_05s__P_roll60"), row.get("VK_basis_adj__P_roll60")
-        if _fin(bf) and _fin(basis) and _fin(pb) and _fin(pv):
-            L.append(f"- 교차검증(기준 2종, 롤60 백분위): BF {bf:+.2f}%p ({pb:.0f}%ile · 근월 ±0.5σ 두 점) vs "
-                     f"basis_adj {basis:+.2f}%p ({pv:.0f}%ile · 모델프리 전 행사가 적분·만기조정) — "
-                     + ("두 기준 정합 (꼬리 두께 판정 일치)" if abs(pb - pv) < BF_BASIS_DIVERGE else
-                        f"**⚠ 괴리 {abs(pb - pv):.0f}%ile포인트** (초안 임계 {BF_BASIS_DIVERGE:.0f}) — "
-                        "±0.5σ 안쪽과 전 행사가 적분이 다른 이야기. 후보: "
-                        f"① ±0.5σ **밖 원격 꼬리**에서만 형상 변화 ({'원격 꼬리가 얇음' if pv < pb else '원격 꼬리가 두꺼움'} 방향) "
-                        "② 날개의 만기 불일치 (BF=근월 전용 vs VK=30일 혼합 — ATM 축은 조정됐으나 날개 축은 미조정) "
-                        "③ 해당 행사가 저유동. 단정 금지"))
+        pv = row.get("VK_basis_adj__P_roll60")
+        aligned = bool(row.get("BF_blend30_ok")) and _fin(row.get("BF_blend30"))
+        if aligned:
+            wing, pb = row.get("BF_blend30"), row.get("BF_blend30__P_roll60")
+            wlabel, axis_note = "BF_blend30", "30일 정렬·vega가중"
+        else:
+            wing, pb = bf, row.get("BF_05s__P_roll60")
+            wlabel, axis_note = "BF", "근월 전용 — **날개 축 미정렬**"
+        if _fin(wing) and _fin(basis) and _fin(pb) and _fin(pv):
+            head = (f"- 교차검증(기준 2종, 롤60 백분위): {wlabel} {wing:+.2f}%p ({pb:.0f}%ile · ±0.5σ 두 점, {axis_note}) vs "
+                    f"basis_adj {basis:+.2f}%p ({pv:.0f}%ile · 모델프리 전 행사가 적분·만기조정) — ")
+            if abs(pb - pv) < BF_BASIS_DIVERGE:
+                L.append(head + "두 기준 정합 (꼬리 두께 판정 일치)")
+            else:
+                cands = []
+                if not aligned:
+                    # 축이 안 맞는 날은 이 후보를 먼저 소거할 수 없다 — 반드시 1순위
+                    cands.append("**날개 축 미정렬** (차월 저유동으로 BF_blend30 결측, 근월 BF 폴백)")
+                cands += [
+                    f"±0.5σ **밖 원격 꼬리**에서만 형상 변화 "
+                    f"({'원격 꼬리가 얇음' if pv < pb else '원격 꼬리가 두꺼움'} 방향)",
+                    "해당 행사가 저유동",
+                    "VKOSPI 산출 시점 차이",
+                ]
+                nums = "①②③④"
+                joined = " ".join(f"{nums[k]} {c}" for k, c in enumerate(cands))
+                L.append(head + f"**⚠ 괴리 {abs(pb - pv):.0f}%ile포인트** (초안 임계 {BF_BASIS_DIVERGE:.0f}) — "
+                                "±0.5σ 안쪽과 전 행사가 적분이 다른 이야기. 후보: " + joined + ". 단정 금지")
+        if not aligned and _fin(row.get("CPgap_next")):
+            L.append(f"- ⚠ 가드(개선 7): 차월 ATM C/P 괴리 {row['CPgap_next']:.1f}%p "
+                     f"(≥ {CPGAP_NEXT_GATE:.0f}%p) — 차월 저유동으로 **날개 축 30일 정렬 불가**. "
+                     "교차검증은 근월 BF 폴백이며, 괴리가 나와도 만기 불일치 성분을 분리할 수 없다")
     z = row.get("Skew__Z")
     if _fin(z) and abs(z) >= 1.5:
         d = "확대" if z > 0 else "축소"
@@ -493,7 +517,8 @@ def _summary_flags(row, metrics) -> str:
 
 # ── 본체 ──────────────────────────────────────────────────
 METRICS = ["ATM_IV", "Skew", "TS_diff", "PCR_OI_all", "VK", "VRP", "VRP_fast",
-           "VK_basis", "VK_basis_adj", "BF_05s",   # 개선 1·2 (2026-07-29) · 개선 6 (2026-08-04)
+           "VK_basis", "VK_basis_adj",            # 개선 1 (2026-07-29) · 개선 6 (2026-08-04)
+           "BF_05s", "BF_blend30",                # 개선 2 (2026-07-29) · 개선 7 (2026-08-04)
            "CPgap_front"]            # 개선 5 대체안 — pipeline.METRICS 와 동일 집합 유지
 
 # 헤드라인 플래그 요약 전용 집합 — naive VK_basis 제외 (개선 6, 2026-08-04).
