@@ -343,6 +343,10 @@ p  { font-size: 0.85rem; color: #555; margin: 0.3em 0; }
 .viz { flex: 0 0 40%; min-width: 0; border: 1px solid #dde5ec; border-radius: 10px;
        padding: 6px 4px 0; background: #fff; }
 @media (max-width: 900px) { .row { flex-direction: column; } .viz { flex-basis: auto; width: 100%; } }
+.easy { background: #f4f8f1; border: 1px solid #d9e5cf; border-radius: 10px;
+        padding: 6px 18px 12px; margin: 14px 0; }
+.easy h2 { margin-top: 0.5em; }
+.easy p { color: #3d4a3a; font-size: 0.9rem; }
 """
 
 
@@ -355,12 +359,29 @@ def main() -> None:
     out_dir.mkdir(exist_ok=True)
     (out_dir / "daily_report.md").write_text(report + "\n", encoding="utf-8")
 
+    # ── 쉬운 번역 (Layer C-2, 2026-08-05 Kane) — 실패 시 조용히 생략 (발송 비차단) ──
+    easy_md = None
+    try:
+        from optgauge.translate import translate_easy
+        easy_md = translate_easy(report)
+    except Exception:
+        easy_md = None
+    m_date = re.search(r"^# OptGauge 일일 보고 — (\d{4}-\d{2}-\d{2})", report, re.M)
+    if easy_md and m_date:
+        (out_dir / "daily_report_easy.md").write_text(
+            f"<!-- report_date: {m_date.group(1)} -->\n{easy_md}\n", encoding="utf-8")
+        print("쉬운 번역: 생성됨")
+    else:
+        print("쉬운 번역: 생략 (키 없음/API 실패 — 보고는 정상 진행)")
+
     i = len(df) - 1 if date is None else int(df.index[df["Date"] == pd.Timestamp(date)][0])
     head_md, section_mds, footer_md = split_report(report)
 
     rows = [f'<div class="row first"><div class="txt">{md_to_html(head_md)}</div>'
-            f'<div class="viz">{chart_kospi(df, i)}</div></div>',
-            "<h2>게이지 상세</h2>"]
+            f'<div class="viz">{chart_kospi(df, i)}</div></div>']
+    if easy_md:
+        rows.append(f'<div class="easy">{md_to_html(easy_md)}</div>')
+    rows.append("<h2>게이지 상세</h2>")
     for k, sec_md in enumerate(section_mds):
         chart = GAUGE_CHARTS[k](df, i) if k < len(GAUGE_CHARTS) else ""
         rows.append(f'<div class="row"><div class="txt">{md_to_html(sec_md)}</div>'

@@ -45,6 +45,23 @@ GAUGE_TITLES = ["G1", "G2", "G3", "G4", "G5"]
 DASHBOARD_URL = "http://100.68.171.87:8501"  # 아웃퍼포머 (Tailscale — 맥미니)
 
 
+def _easy_html(report_date: str) -> str:
+    """쉬운 번역 (Layer C-2) — 있고 날짜가 일치할 때만 삽입, 아니면 빈 문자열.
+
+    날짜 불일치(옛 번역 재사용)는 숫자 오전달보다 나쁜 사고이므로 엄격히 제외한다.
+    """
+    p = PROJECT_ROOT / "output" / "daily_report_easy.md"
+    if not p.exists():
+        return ""
+    txt = p.read_text(encoding="utf-8")
+    first, _, body = txt.partition("\n")
+    if f"report_date: {report_date}" not in first:
+        return ""
+    return ('<div style="background:#f4f8f1;border:1px solid #d9e5cf;border-radius:10px;'
+            'padding:4px 16px 10px;margin:10px 0 14px;">'
+            + nd.md_to_html(body) + "</div>")
+
+
 def build_html_and_images(report_md: str, df: pd.DataFrame, i: int):
     """(본문 HTML, [(cid, png_bytes)]) — 요약 + G1 차트 1장.
 
@@ -54,6 +71,8 @@ def build_html_and_images(report_md: str, df: pd.DataFrame, i: int):
     전체 상세는 첨부 daily_report.html 로 계속 제공.
     """
     head_md, _section_mds, footer_md = nd.split_report(report_md)
+    m = re.search(r"^# OptGauge 일일 보고 — (\d{4}-\d{2}-\d{2})", report_md, re.M)
+    easy = _easy_html(m.group(1)) if m else ""
     images: list[tuple[str, bytes]] = []
 
     def png(fig, cid):
@@ -66,6 +85,7 @@ def build_html_and_images(report_md: str, df: pd.DataFrame, i: int):
              f'\'Noto Sans KR\',sans-serif;color:#222;max-width:680px;margin:0 auto;'
              f'line-height:1.5;font-size:14px;">',
              nd.md_to_html(head_md),
+             easy,  # 쉬운 번역 (Layer C-2, 2026-08-05) — 없으면 빈 문자열
              png(nd.FIG_BUILDERS[0](df, i), "g1"),  # G1 — ATM IV/RV/VRP
              f"<hr>{nd.md_to_html(footer_md)}",
              f'<p style="margin:14px 0 4px;"><a href="{DASHBOARD_URL}" '
