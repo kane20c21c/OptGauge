@@ -18,15 +18,28 @@
   **호출만** 하고 (수식·오케스트레이션 복제 금지 — indicator_calculator 의 hillstorm 규율과 동일),
   산출을 LLV `data/indicators/gauge_*.parquet` 에 저장. OptGauge 08:20 잡은 소비만
   (신선도 가드 → narrate → 메일). 소비자 공용 로더 = `optgauge.data_access.load_gauge()`.
-  **[저녁 잠정 체인 2026-07-20 Kane 확정]**: KRX 는 당일분을 저녁에 미게시(실측) →
-  LLV `evening_update`(19:00)가 KIS 종목별시세로 코스피200 옵션 전 만기 수집 →
-  `data/options_eve/opt_*.parquet` **잠정본** + 게이지 재산출 → OptGauge
-  `run_evening.sh`(19:30)가 [잠정·KIS] 메일 발송. **아침 KRX 확정본이 정본** —
-  data_access 가 정본 우선/잠정 폴백으로 자동 대체 (최신일 한정 리페인트 허용),
-  08:20 `verify_provisional.py` 가 잠정 vs 확정 비교 후 임계 초과 시 정정 메일.
+  **[저녁 잠정 체인 폐지 2026-08-06 Kane 결정 — 도입 2026-07-20, 운영 3주]**:
+  옵션 게이지는 **아침 확정 체인 단독**으로 돈다 (LLV 08:01 → OptGauge 08:20).
+  근거(12거래일 7/21~8/5 실측, `output/prov_vs_final.csv`): KIS 저녁 IV 는 KRX 확정과
+  **계통적으로 다른 값** — 행 단위 IV 불일치율 ~100%, ATM_IV |차| 중앙 6.7%p·최대 26.8%p,
+  TS_diff 12/12일 임계 초과, **Skew 부호 반전 6/12일**. 반면 **OI·PCR 은 12/12일 완전 일치**.
+  8/5 실례: 저녁 플래그 8개 vs 아침 3개 — 겹침은 PCR 하나. 정정 메일이 상시 발송되는
+  상태였다. → 중단 대상: launchd `com.stolab.optgauge.evening`(19:30) ·
+  `com.stolab.llv-evening`(19:00), `run_evening.sh` · `verify_provisional.py` ·
+  `check_provisional_stale.py` · `tests/test_v6_*` (전부 `archive/` 이동),
+  LLV `scripts/evening_update.py`.
+  ⚠ 잔존: `data/options_eve/` 기존 파일과 `data_access` 의 잠정 폴백 경로는 **그대로 둔다**
+  (정본 우선이라 무해, 새 잠정본은 더 이상 생성 안 됨). 재개하려면 archive 에서 복구.
 - **OptGauge = 수식·검증·해석 계층** — 지표 수식 정본(metrics/normalize/composite), 검증 게이트
   (tests V1~V5 — LLV 잡의 선행 게이트), 서술(narrate)·메일, 문서 정본(명세서·해석노트) 소유.
   hillstorm(Wyckoff 엔진)과 같은 위상의 독립 프로젝트.
+  **[보고 양식 v2 — 2026-08-06 Kane 승인]** 레이아웃 정본 = `optgauge/report_layout.py`
+  (메일 `send_report` 와 대시보드 `narrate_daily` → daily_report.html 이 **공유**).
+  게이지마다 좌측 [기초수치 + 쉬운해석([팩트]/[해석])] · 우측 [해당 게이지 차트] 2단,
+  ⚠ 가드는 본문에서 빼 **하단 각주(※n)**. 메일은 컴팩트(기초수치 2줄 + 가드 각주),
+  대시보드는 전문 유지(가설·원칙 포함). 스타일은 전부 인라인(메일 클라이언트 대비).
+  종전 슬림안(2026-07-20, 요약 + G1 차트 1장)과 쉬운번역 별도 박스는 폐지.
+  미리보기: `python3 scripts/preview_mail.py` → output/preview_mail.html (발송 없음).
 - **대시보드 = 아웃퍼포머(homalone, Streamlit :8501) `app/pages/10_옵션게이지.py`**
   **[확정 2026-07-19 Kane — StockPortfolio :8000 에서 변경, v1 구현·배포 완료 (homalone e2770fa)]**:
   게이지 parquet 읽기 전용 소비 (LLV `data/indicators/` — 2026-07-20 이관 완료)
@@ -63,7 +76,9 @@ OptGauge/
 │   ├── composite.py           # 복합 플래그 (State8/Struct_state)
 │   ├── pipeline.py            # 빌드 오케스트레이션 정본 (LLV 잡 진입점 build_gauge)
 │   ├── data_access.py         # LLV parquet 읽기 (load_gauge 포함)
-│   └── narrate.py             # Layer C: 서술 템플릿
+│   ├── narrate.py             # Layer C: 서술 템플릿
+│   ├── translate.py           # Layer C-2: 쉬운 번역 (Messages API, 실패 시 None)
+│   └── report_layout.py       # Layer C-3: 보고 양식 v2 정본 (메일·대시보드 공유)
 ├── notebooks/                 # 프로토타입/실증 비교
 └── tests/
 ```

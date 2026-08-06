@@ -3,6 +3,7 @@
 # [이관 2026-07-20] 게이지 산출·보관 = LLV (daily_update 08:01 → optgauge_gauge
 #   → data/indicators/gauge_*.parquet). 검증 게이트(V1~V5)도 LLV 잡의 선행 게이트.
 # 여기서는 소비만: 신선도 확인 → narrate_daily → send_report (실패 시 에러 알림)
+# [2026-08-06] 옵션 게이지는 **아침 체인 단독** — 저녁 잠정(19:00 LLV / 19:30 OptGauge)은 폐지.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -33,12 +34,10 @@ print(f"게이지 신선도 OK: {last_gauge}")
 GUARD
   "$PY" scripts/narrate_daily.py
   "$PY" scripts/send_report.py
-  # 잠정(전날 저녁 KIS) vs 확정(KRX) 검증 — 임계 초과 시 정정 메일 (2026-07-20 도입)
-  "$PY" scripts/verify_provisional.py
-  # 잠정본 잔존 감지 (해석노트 함정 11, 2026-07-29 도입).
-  # verify_provisional 은 확정본이 **도착했을 때** 비교하므로, 확정본이 아예 안 오면
-  # 침묵한다 — 2026-07-21 이 그 상태로 남아 미세구조 지표가 오염됐다.
-  # 여기서 실패시켜 trap on_error 로 알림이 나가게 한다 (복구 명령은 로그에 출력됨).
-  "$PY" scripts/check_provisional_stale.py
+  # [2026-08-06 Kane 결정] 저녁 잠정 체인 폐지 — verify_provisional /
+  # check_provisional_stale 단계 제거 (scripts/archive/ 로 이동).
+  # 근거: 12거래일 실측에서 KIS 잠정 IV 가 KRX 확정과 계통적으로 달랐다
+  # (ATM_IV 중앙 6.7%p·최대 26.8%p, TS_diff 12/12일 임계 초과, Skew 부호 반전 6일).
+  # 정정 메일이 상시 발송되는 상태였고, OI·PCR 만 완전 일치였다.
   echo "=== 완료 $(date '+%F %T') ==="
 } >> "$LOG" 2>&1

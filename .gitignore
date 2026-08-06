@@ -14,3 +14,7 @@ output/daily_report.html
 output/logs/
 output/.last_sent
 output/daily_report_easy.md
+# 양식 미리보기 (scripts/preview_mail.py 로 재생성)
+output/preview_mail.html
+# 잠정 vs 확정 비교 산출 (2026-08-06 저녁 체인 폐지 근거 데이터)
+output/prov_vs_final.csv

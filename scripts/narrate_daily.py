@@ -25,6 +25,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from optgauge.narrate import narrate, CPGAP_GATE
 from optgauge.metrics import second_thursday
 from optgauge.data_access import load_gauge
+from optgauge import report_layout as rl  # 양식 v2 공통 레이아웃 (메일·대시보드 공유)
 
 CHART_WEEKS = 5  # 주 정렬 창 (Kane 지정 2026-07-18): 4주 전 월요일 ~ 이번 주 금요일 (25 거래슬롯)
 
@@ -327,26 +328,14 @@ def split_report(md: str) -> tuple[str, list[str], str]:
     return ("\n".join(head), ["\n".join(s) for s in sections], "\n".join(footer))
 
 
+# 양식 v2 이후 상세 스타일은 optgauge/report_layout.py 인라인 정본 —
+# 여기 CSS 는 페이지 컨테이너와 좁은 화면 폴백만 담당한다 (2026-08-06).
 _CSS = """
-body { font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif; color: #222;
-       max-width: 1150px; margin: 24px auto; padding: 0 16px; line-height: 1.5; }
-h1 { font-size: 1.3rem; border-bottom: 2px solid #333; padding-bottom: 6px; }
-h2 { font-size: 1.05rem; margin: 1.1em 0 0.4em; }
-h3 { font-size: 0.98rem; margin: 0 0 0.4em; color: #333; }
-ul { margin: 0.2em 0 0.6em; padding-left: 1.25em; }
-li { margin: 0.14em 0; font-size: 0.9rem; }
-p  { font-size: 0.85rem; color: #555; margin: 0.3em 0; }
-.row { display: flex; gap: 18px; align-items: flex-start;
-       border-top: 1px solid #e5e5e5; padding: 12px 0 4px; }
-.row.first { border-top: none; }
-.txt { flex: 1 1 56%; min-width: 0; }
-.viz { flex: 0 0 40%; min-width: 0; border: 1px solid #dde5ec; border-radius: 10px;
-       padding: 6px 4px 0; background: #fff; }
-@media (max-width: 900px) { .row { flex-direction: column; } .viz { flex-basis: auto; width: 100%; } }
-.easy { background: #f4f8f1; border: 1px solid #d9e5cf; border-radius: 10px;
-        padding: 6px 18px 12px; margin: 14px 0; }
-.easy h2 { margin-top: 0.5em; }
-.easy p { color: #3d4a3a; font-size: 0.9rem; }
+body { margin: 24px auto; max-width: 1150px; padding: 0 16px; background: #fff; }
+hr { border: none; border-top: 1px solid #e5e9ed; margin: 16px 0 8px; }
+@media (max-width: 820px) {
+  table td { display: block; width: 100% !important; padding-right: 0 !important; }
+}
 """
 
 
@@ -375,22 +364,21 @@ def main() -> None:
         print("쉬운 번역: 생략 (키 없음/API 실패 — 보고는 정상 진행)")
 
     i = len(df) - 1 if date is None else int(df.index[df["Date"] == pd.Timestamp(date)][0])
-    head_md, section_mds, footer_md = split_report(report)
 
-    rows = [f'<div class="row first"><div class="txt">{md_to_html(head_md)}</div>'
-            f'<div class="viz">{chart_kospi(df, i)}</div></div>']
-    if easy_md:
-        rows.append(f'<div class="easy">{md_to_html(easy_md)}</div>')
-    rows.append("<h2>게이지 상세</h2>")
-    for k, sec_md in enumerate(section_mds):
-        chart = GAUGE_CHARTS[k](df, i) if k < len(GAUGE_CHARTS) else ""
-        rows.append(f'<div class="row"><div class="txt">{md_to_html(sec_md)}</div>'
-                    f'<div class="viz">{chart}</div></div>')
-    rows.append(f"<hr>{md_to_html(footer_md)}")
+    # 양식 v2 (2026-08-06 Kane 승인): 게이지별 [기초수치 + 쉬운해석 | 차트] 2단.
+    # 대시보드판은 **전문 유지** (가드·가설·원칙을 본문에 남김) — 메일판만 컴팩트.
+    rep = rl.parse_report(report)
+    easy = rl.parse_easy(easy_md)
+    charts = {f"G{k + 1}": GAUGE_CHARTS[k](df, i) for k in range(len(GAUGE_CHARTS))}
+    body = rl.build_body(rep, easy, charts, compact=False,
+                         head_chart=chart_kospi(df, i))
+    footer_html = "".join(f'<p style="{rl.S["footer"]}">{rl.inline(l)}</p>'
+                          for l in rep.footer.splitlines() if l.strip())
 
     html = (f"<!DOCTYPE html><html lang=\"ko\"><head><meta charset=\"utf-8\">"
+            f"<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
             f"<title>OptGauge 일일 보고</title><style>{_CSS}</style></head>"
-            f"<body>{''.join(rows)}</body></html>")
+            f"<body><div style=\"{rl.S['wrap']}\">{body}<hr>{footer_html}</div></body></html>")
     (out_dir / "daily_report.html").write_text(html, encoding="utf-8")
 
     print(report)

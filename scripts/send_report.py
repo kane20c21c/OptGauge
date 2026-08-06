@@ -3,8 +3,9 @@
 
 사용: python scripts/send_report.py [--force]
   - output/daily_report.md 의 최신 보고를 HTML 메일로 발송.
-  - 본문 = 요약·서술 + 게이지별 PNG 차트 (kaleido, cid 인라인),
-    첨부 = daily_report.html (인터랙티브).
+  - 본문 = 게이지별 [기초수치 2줄 + 쉬운해석 2줄 | 차트] 2단 × G1~G5
+    (양식 v2, 2026-08-06 Kane 승인 — 레이아웃 정본 optgauge/report_layout.py),
+    차트는 PNG(kaleido, cid 인라인), 첨부 = daily_report.html (인터랙티브 전문).
   - 발송 가드: 보고일이 output/.last_sent 와 같으면 스킵 (--force 로 무시)
     — 주말·수집 지연으로 새 데이터가 없는 날 중복 발송 방지.
   - SMTP 자격증명: MorningBrief .env 재사용 (GMAIL_USER/GMAIL_APP_PW/RECIPIENTS).
@@ -32,12 +33,14 @@ sys.path.insert(0, str(MORNINGBRIEF))
 
 from lib.env_loader import load_env, get_env, get_recipients  # MorningBrief 공용 모듈
 
-import narrate_daily as nd  # 차트 빌더·md 파서 재사용
+import narrate_daily as nd  # 차트 빌더 재사용
 from optgauge.data_access import load_gauge
+from optgauge import report_layout as rl  # 양식 v2 공통 레이아웃 (대시보드와 공유)
 
 SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 465
 STATE = PROJECT_ROOT / "output" / ".last_sent"
-PNG_W, PNG_SCALE = 640, 2
+PNG_W, PNG_SCALE = 460, 2  # 2단 우측 컬럼 폭 기준 (양식 v2 — 게이지당 1장 × 5)
+FACT_LIMIT = 2             # 메일 본문에 남길 기초수치 줄 수 (나머지는 대시보드)
 
 GAUGE_TITLES = ["G1", "G2", "G3", "G4", "G5"]
 
@@ -45,61 +48,63 @@ GAUGE_TITLES = ["G1", "G2", "G3", "G4", "G5"]
 DASHBOARD_URL = "http://100.68.171.87:8501"  # 아웃퍼포머 (Tailscale — 맥미니)
 
 
-def _easy_html(report_date: str) -> str:
-    """쉬운 번역 (Layer C-2) — 있고 날짜가 일치할 때만 삽입, 아니면 빈 문자열.
+def _easy_md(report_date: str) -> str | None:
+    """쉬운 번역 (Layer C-2) 본문 — 날짜가 일치할 때만, 아니면 None.
 
     날짜 불일치(옛 번역 재사용)는 숫자 오전달보다 나쁜 사고이므로 엄격히 제외한다.
     """
     p = PROJECT_ROOT / "output" / "daily_report_easy.md"
     if not p.exists():
-        return ""
+        return None
     txt = p.read_text(encoding="utf-8")
     first, _, body = txt.partition("\n")
     if f"report_date: {report_date}" not in first:
-        return ""
-    return ('<div style="background:#f4f8f1;border:1px solid #d9e5cf;border-radius:10px;'
-            'padding:4px 16px 10px;margin:10px 0 14px;">'
-            + nd.md_to_html(body) + "</div>")
+        return None
+    return body
 
 
 def build_html_and_images(report_md: str, df: pd.DataFrame, i: int):
-    """(본문 HTML, [(cid, png_bytes)]) — 요약 + G1 차트 1장.
+    """(본문 HTML, [(cid, png_bytes)]) — 게이지별 [기초수치+쉬운해석 | 차트] 2단.
 
-    [슬림화 2026-07-20 Kane]: 게이지별 상세 서술·차트(KOSPI·G2~G5)는 메일에서
-    제거하고 대시보드('전체 게이지 보고' 펼침 = daily_report.html)로 이동.
-    본문 = 헤드라인 요약 + G1(ATM IV/RV/VRP) 차트 + 원칙 푸터 + 대시보드 링크.
-    전체 상세는 첨부 daily_report.html 로 계속 제공.
+    [양식 v2 2026-08-06 Kane 승인]: 종전 '요약 + G1 차트 1장' 슬림안(2026-07-20)을
+    대체. 게이지마다 기초수치 2줄 + 쉬운 해석([팩트]/[해석]) 2줄을 왼쪽에, 해당
+    게이지 차트를 오른쪽에 둔다. ⚠ 가드는 제목 옆 ※마커 + 하단 각주(작은 글씨).
+    방향 가설·고정 원칙 등 전문은 대시보드/첨부 daily_report.html 로 유지.
+    레이아웃 정본 = optgauge.report_layout (대시보드와 공유).
     """
-    head_md, _section_mds, footer_md = nd.split_report(report_md)
     m = re.search(r"^# OptGauge 일일 보고 — (\d{4}-\d{2}-\d{2})", report_md, re.M)
-    easy = _easy_html(m.group(1)) if m else ""
+    easy = rl.parse_easy(_easy_md(m.group(1)) if m else None)
+    rep = rl.parse_report(report_md)
     images: list[tuple[str, bytes]] = []
 
-    def png(fig, cid):
-        images.append((cid, fig.to_image(format="png", width=PNG_W, scale=PNG_SCALE)))
-        return (f'<img src="cid:{cid}" alt="{cid}" '
-                f'style="width:100%;max-width:{PNG_W}px;display:block;margin:6px 0 14px;'
-                f'border:1px solid #dde5ec;border-radius:8px;">')
+    charts: dict[str, str] = {}
+    for k, sec in enumerate(rep.sections):
+        if k >= len(nd.FIG_BUILDERS):
+            break
+        cid = sec.gid.lower()
+        images.append((cid, nd.FIG_BUILDERS[k](df, i)
+                       .to_image(format="png", width=PNG_W, scale=PNG_SCALE)))
+        charts[sec.gid] = (f'<img src="cid:{cid}" alt="{cid}" '
+                           f'style="width:100%;max-width:{PNG_W}px;display:block;'
+                           f'margin:2px 0;border-radius:6px;">')
 
-    parts = [f'<div style="font-family:-apple-system,\'Apple SD Gothic Neo\','
-             f'\'Noto Sans KR\',sans-serif;color:#222;max-width:680px;margin:0 auto;'
-             f'line-height:1.5;font-size:14px;">',
-             nd.md_to_html(head_md),
-             easy,  # 쉬운 번역 (Layer C-2, 2026-08-05) — 없으면 빈 문자열
-             png(nd.FIG_BUILDERS[0](df, i), "g1"),  # G1 — ATM IV/RV/VRP
-             f"<hr>{nd.md_to_html(footer_md)}",
-             f'<p style="margin:14px 0 4px;"><a href="{DASHBOARD_URL}" '
-             f'style="display:inline-block;background:#1976D2;color:#ffffff;'
-             f'text-decoration:none;border-radius:8px;padding:8px 14px;font-size:13px;">'
-             f'전체 보고 보기 — 아웃퍼포머 대시보드</a></p>',
-             '<p style="color:#94a3b8;font-size:12px;">OptGauge · 자동 발송 · '
-             '게이지 상세(설명+그래프)는 대시보드 또는 첨부 daily_report.html</p></div>']
-    return "".join(parts), images
+    body = rl.build_body(rep, easy, charts, compact=True, fact_limit=FACT_LIMIT)
+    footer = "".join(f'<p style="{rl.S["footer"]}">{rl.inline(l)}</p>'
+                     for l in rep.footer.splitlines() if l.strip())
+    return (f'<div style="{rl.S["wrap"]}max-width:680px;margin:0 auto;">'
+            f'{body}<hr style="border:none;border-top:1px solid #e5e9ed;margin:16px 0 8px;">'
+            f'{footer}'
+            f'<p style="margin:14px 0 4px;"><a href="{DASHBOARD_URL}" '
+            f'style="{rl.S["btn"]}">전체 보고 보기 — 아웃퍼포머 대시보드</a></p>'
+            f'<p style="color:#94a3b8;font-size:12px;">OptGauge · 자동 발송 · '
+            f'방향 가설·원칙 등 전문은 대시보드 또는 첨부 daily_report.html</p></div>'), images
 
 
 def main() -> None:
     force = "--force" in sys.argv
-    provisional = "--provisional" in sys.argv  # 저녁 KIS 잠정 보고 (2026-07-20 도입)
+    # [2026-08-06 Kane 결정] --provisional (저녁 KIS 잠정 보고) 폐지 — 12거래일 실측에서
+    # IV 계열이 확정과 계통적으로 달라(ATM_IV 중앙 6.7%p·최대 26.8%p, TS_diff 12/12일
+    # 임계 초과, Skew 부호 반전 6일) 잠정 서술의 신뢰구간이 없었다. OI·PCR 만 일치.
 
     report_md = (PROJECT_ROOT / "output" / "daily_report.md").read_text(encoding="utf-8")
     m = re.search(r"^# OptGauge 일일 보고 — (\d{4}-\d{2}-\d{2})", report_md, re.M)
@@ -118,20 +123,11 @@ def main() -> None:
     i = int(idx[0])
 
     flags = re.search(r"^- 플래그: (.+)$", report_md, re.M)
-    tag = "일일 보고(잠정·KIS)" if provisional else "일일 보고"
-    subject = f"[OptGauge] {tag} {report_date}"
+    subject = f"[OptGauge] 일일 보고 {report_date}"
     if flags and flags.group(1).strip() != "플래그 없음":
         subject += f" · {flags.group(1).strip()}"
 
     html, images = build_html_and_images(report_md, df, i)
-    if provisional:
-        badge = ('<div style="background:#FFF3E0;border:1px solid #E8710A;color:#8a4500;'
-                 'border-radius:8px;padding:8px 12px;margin:0 0 12px;font-size:13px;">'
-                 '⚠ <b>잠정 보고</b> — KIS 저녁 수집(당일) 기반. OI·PCR 은 확정급, '
-                 'IV 계열(ATM IV·Skew·TS)은 KIS 계통 산출이라 아침 KRX 확정과 '
-                 '±수%p 차이가 날 수 있습니다. 내일 아침 확정 검증에서 '
-                 '임계 초과 시 정정 메일이 발송됩니다.</div>')
-        html = html.replace('">', '">' + badge, 1)
 
     load_env()
     user = get_env("GMAIL_USER", required=True)
