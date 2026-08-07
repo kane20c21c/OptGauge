@@ -22,6 +22,15 @@ FLAG_HIGH = 95.0   # P_roll ≥ 95 → HIGH
 FLAG_LOW = 5.0     # P_roll ≤ 5  → LOW
 FLAG_JUMP_Z = 2.5  # |Z_delta| ≥ 2.5 → JUMP
 
+# 전체기간 백분위(P_full)를 **산출하지 않는** 지표 [개선 8, 2026-08-07 Kane 지시]
+# pct_full 의 정의는 "역사 전체 대비 절대 위치"인데, YZ 다리(TIGER 200)는 LLV core.parquet
+# 이 2023-04-03 부터라 표본이 795거래일(3.3년)뿐이다. 2015~2019 저변동기도 2020 코로나도
+# 없는 창에 'full' 이라는 이름을 붙이면 **없는 역사를 있는 것처럼 표시하는 일**이 된다
+# (Kane: "없는 것은 표시하지 마"). 롤60·롤250 만 쓴다 — 이쪽은 정의상 창 길이가 명시적이다.
+# 실측 기준선 왜곡: 같은 지수 계열 YZ20 중앙이 전체 15.0 vs 2023-05 이후 18.1.
+# 백필로 해소 가능하나 Kane 결정 1(2026-08-07)로 백필하지 않는다. 명세서 v0.3 §2-2·함정 ⓔ.
+PCT_FULL_EXCLUDE: frozenset[str] = frozenset({"YZ20", "on_share"})
+
 
 def _segments(dates: pd.Series) -> pd.Series:
     """수집 갭 기준 세그먼트 id (0, 1, 2, ...)."""
@@ -140,6 +149,10 @@ def add_layer_b(df: pd.DataFrame, metrics: list[str],
         X__P_full, X__P_roll{w}..., X__Z, X__flag ("HIGH"/"LOW"/"JUMP"/조합/"")
     플래그 판정은 주 윈도(windows[0]) 기준.
 
+    ⚠ PCT_FULL_EXCLUDE 에 든 지표는 **X__P_full 컬럼 자체를 만들지 않는다** (개선 8).
+      NaN 으로 채우지 않는 이유: 소비자가 "표본 부족으로 아직 결측"과 "정의상 산출 안 함"을
+      구분할 수 있어야 한다. narrate._pcts 는 컬럼 부재 시 전체기간 항을 통째로 생략한다.
+
     마지막에 add_conditional 로 조건부 백분위(X__P_cond / X__cond_bucket)도 붙인다
     (CONDITIONAL 정본 대상만). ⚠ 플래그는 여전히 **무조건부** P_roll60 기준 —
     조건부는 서술에서 병기·반증용이며 플래그 판정을 대체하지 않는다 (2026-07-29).
@@ -154,7 +167,8 @@ def add_layer_b(df: pd.DataFrame, metrics: list[str],
         logger.warning("Layer B 대상 지표 누락 — 건너뜀: %s (Layer A 재빌드 필요)", missing)
     for m in [m for m in metrics if m in df.columns]:
         s = df[m]
-        df[f"{m}__P_full"] = pct_full(s)
+        if m not in PCT_FULL_EXCLUDE:
+            df[f"{m}__P_full"] = pct_full(s)
         for w in windows:
             df[f"{m}__P_roll{w}"] = pct_rolling(s, d, w)
         df[f"{m}__Z"] = z_delta(s, d)

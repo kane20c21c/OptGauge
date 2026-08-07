@@ -17,7 +17,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from optgauge.data_access import list_opt_dates, load_opt_day, load_index
+from optgauge.data_access import (list_opt_dates, load_opt_day, load_index,
+                                  load_yz_source)
 from optgauge.metrics import compute_day, postprocess
 from optgauge.normalize import add_layer_b
 from optgauge.composite import add_composite
@@ -38,9 +39,15 @@ METRICS = ["ATM_IV", "Skew", "TS_diff", "PCR_OI_all", "VK", "VRP",
            "BF_blend30",  # 개선 7 (2026-08-04): 날개 축을 30일로 정렬한 BF (vega 가중).
                           # basis_adj 와 **만기 축이 같은** 유일한 교차검증 상대.
                           # 차월 저유동일(CPgap_next≥8%p)은 결측 — 서술이 근월 BF 로 폴백.
-           "CPgap_front"]  # 개선 5 대체안 (2026-07-29): 호가 데이터 없이 쓸 수 있는
+           "CPgap_front",  # 개선 5 대체안 (2026-07-29): 호가 데이터 없이 쓸 수 있는
                            # 유일한 유동성 대리지표 — 근월 ATM 콜·풋 IV 괴리(가격 마찰).
                            # ⚠ 정규화 금지 (원값 사용) — 근거는 명세서 G1-2.
+           "YZ20",       # 개선 8 (2026-08-07 Kane 결정): Yang-Zhang 실현변동성 (연율 %).
+                         # 기준 창구 = TIGER 200 ETF (지수 아님 — stale open, 명세서 v0.3 §3).
+                         # **RV20 을 대체하지 않는다** — VRP 의 실현 다리는 RV20 유지, 병기.
+           "on_share"]   # 개선 8 — 오버나이트 분산 비중 %. 이 개선의 고유 산출물.
+                         # "오늘의 실현변동이 밤(미국 세션)에서 왔나 낮(한국 장중)에서 왔나."
+                         # ⚠ 두 지표는 P_full 미산출 (표본 795일 — PCT_FULL_EXCLUDE 참조).
 WINDOWS = (60, 250)
 
 
@@ -60,6 +67,16 @@ def build_metrics_df(start: str = "19000101", end: str = "29991231"):
     vk = load_index("VKOSPI")
     vk_map = dict(zip(vk["Date"].dt.strftime("%Y%m%d"), vk["Close"]))
 
+    # YZ 다리 (개선 8) — LLV core.parquet 의 TIGER 200 행. 부재해도 산출은 계속한다
+    # (YZ 컬럼만 NaN) — LLV 가 YZ 를 안 만들던 시절 산출본과의 호환도 겸한다.
+    try:
+        yz_src = load_yz_source()
+        if yz_src.empty:
+            logger.warning("YZ 원천 비어 있음 — YZ20/on_share 는 NaN (LLV core.parquet 확인)")
+    except Exception as exc:  # pragma: no cover — 방어적 폴백
+        logger.warning("YZ 원천 로드 실패 (%s) — YZ20/on_share 는 NaN", exc)
+        yz_src = None
+
     rows, quality = [], []
     t0 = time.time()
     for i, ds in enumerate(dates, 1):
@@ -75,7 +92,7 @@ def build_metrics_df(start: str = "19000101", end: str = "29991231"):
         if i % 100 == 0:
             logger.info("%d/%d (%.1fs)", i, len(dates), time.time() - t0)
 
-    df = postprocess(pd.DataFrame(rows), k200=k200)
+    df = postprocess(pd.DataFrame(rows), k200=k200, yz=yz_src)
     return df, pd.DataFrame(quality)
 
 

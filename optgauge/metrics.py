@@ -304,15 +304,69 @@ GAP_GUARD_DAYS = 12  # 직전 행과 12일(달력) 초과 벌어지면 Δ 계열
 RV_FAST_LAMBDA = 0.90  # RV_fast (EWMA) 감쇠 계수 — 평균 가중 연령 9.0일 = 균등창20(9.5일) 동급.
                        # 조기경보 전용 보조 지표. 정본은 RV20 (명세서 G1, 해석노트 함정 7, 2026-07-18)
 
+YZ_WINDOW = 20         # 개선 8 — 오버나이트 분산 창. LLV YZ_20 과 **반드시 같아야** 한다
+                       # (분자·분모의 창이 다르면 on_share 가 비중이 아니게 됨).
+                       # YZ_60 은 보류 (Kane 결정 6, 2026-08-07 — G1 과밀 회피).
 
-def postprocess(df: pd.DataFrame, k200: pd.DataFrame | None = None) -> pd.DataFrame:
-    """롤 플래그, ΔATM(롤일 결측), 스큐 정규화, RV20/VRP, ΔOI, VK 파생.
+
+def _add_yz(df: pd.DataFrame, yz: pd.DataFrame | None) -> pd.DataFrame:
+    """개선 8 — YZ20 / on_share / VRP_YZ (명세서 v0.3 §2-1).
+
+    **수식은 만들지 않는다** (Kane 결정 2, 2026-08-07). σ²_YZ 는 LLV 가 이미 계산해 둔
+    것을 쓰고, OptGauge 가 새로 계산하는 것은 **오버나이트 분산 한 항**뿐이다.
+
+        YZ20      = LLV `YZ_20_Ann`  (연율 %, 그대로)
+        on_share  = Var(ln(O_t/C_{t-1}), 창20, ddof=1) ÷ (LLV `YZ_20`)² × 100
+        VRP_YZ    = ATM_IV − YZ20    (참고값 — 백분위 미산출)
+
+    ⚠ 분모는 **`YZ_20`(일간 σ)** 이지 `YZ_20_Ann`(연율 %)이 아니다. 분자도 일간 분산이라
+      단위가 맞는다. 바꿔 넣으면 250만 배 어긋나면서 0% 근처의 그럴듯한 값이 나온다
+      (명세서 v0.3 함정 ⓓ — V10-3 회귀). 실증: 분모를 통째로 재계산한 값과의
+      최대 절대차 2.84e-14 %p (795행 전 구간, 2026-08-07).
+
+    ⚠ 기준 창구는 KOSPI200 지수가 아니라 TIGER 200 ETF 다 (data_access.YZ_TICKER).
+      지수 시가의 stale open 때문 — 명세서 v0.3 §3.
+
+    ⚠ 갭 세그먼트 처리 불필요 — yz 는 LLV 의 **연속** 일별 시계열이고, 롤링 후 날짜
+      매핑하므로 옵션 수집 갭을 가로지르지 않는다 (RV20 경로와 동일 규율).
+
+    yz 가 None/빈 DataFrame 이면 세 컬럼 모두 NaN (게이지 산출은 계속).
+    """
+    if yz is None or yz.empty or not {"Date", "Open", "Close", "YZ_20", "YZ_20_Ann"} <= set(yz.columns):
+        df["YZ20"] = np.nan
+        df["on_share"] = np.nan
+        df["VRP_YZ"] = np.nan
+        return df
+
+    y = yz.sort_values("Date").reset_index(drop=True)
+    n = YZ_WINDOW
+    # 오버나이트 로그수익 — 0 이하 가격은 로그 정의역 밖 (LLV _add_yz_vol 과 동일 처리)
+    o_px = pd.to_numeric(y["Open"], errors="coerce").where(lambda s: s > 0)
+    c_px = pd.to_numeric(y["Close"], errors="coerce").where(lambda s: s > 0)
+    v_o = np.log(o_px / c_px.shift(1)).rolling(n, min_periods=n).var(ddof=1)
+
+    sigma_d = pd.to_numeric(y["YZ_20"], errors="coerce")   # 일간 σ — 분모용
+    denom = sigma_d.pow(2).where(lambda s: s > 0)          # σ²=0 이면 비중 미정의 → NaN
+    on = (v_o / denom * 100.0)
+
+    df["YZ20"] = df["Date"].map(pd.Series(
+        pd.to_numeric(y["YZ_20_Ann"], errors="coerce").values, index=y["Date"].values))
+    df["on_share"] = df["Date"].map(pd.Series(on.values, index=y["Date"].values))
+    df["VRP_YZ"] = df["ATM_IV"] - df["YZ20"]
+    return df
+
+
+def postprocess(df: pd.DataFrame, k200: pd.DataFrame | None = None,
+                yz: pd.DataFrame | None = None) -> pd.DataFrame:
+    """롤 플래그, ΔATM(롤일 결측), 스큐 정규화, RV20/VRP, YZ20/on_share, ΔOI, VK 파생.
 
     Args:
         df:   compute_day 행들의 DataFrame (Date 포함)
         k200: KOSPI200 **연속** 일별 시계열 [Date, Close] — RV20 은 반드시 이걸로
               계산한다 (옵션 수집 갭을 가로지른 수익률 오염 방지, 2026-07-16 버그 수정).
               None 이면 RV20/VRP 는 NaN.
+        yz:   YZ 다리 원천 — `data_access.load_yz_source()` 결과 (TIGER 200 OHLC +
+              LLV YZ 컬럼). None 이면 YZ20/on_share/VRP_YZ 는 NaN. [개선 8, 2026-08-07]
     """
     df = df.sort_values("Date").reset_index(drop=True)
     df["roll_flag"] = df["FrontExpiry"].ne(df["FrontExpiry"].shift(1)) & df["FrontExpiry"].shift(1).notna()
@@ -368,6 +422,11 @@ def postprocess(df: pd.DataFrame, k200: pd.DataFrame | None = None) -> pd.DataFr
         df["RV_fast"] = np.nan
     df["VRP"] = df["ATM_IV"] - df["RV20"]
     df["VRP_fast"] = df["ATM_IV"] - df["RV_fast"]
+
+    # 개선 8 (2026-08-07) — YZ 는 RV20 을 **대체하지 않는다, 병기한다**.
+    # 위 두 줄이 손상되면 함정 7 가드(VRP 음전환 연속일수 3분류)의 이력이 끊긴다
+    # → V10-5 가 비트 단위 불변을 강제한다 (명세서 v0.3 §4).
+    df = _add_yz(df, yz)
 
     df["dOI_total_pct"] = df["OI_total"].pct_change() * 100
     df.loc[gap, "dOI_total_pct"] = np.nan

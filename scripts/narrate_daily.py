@@ -31,6 +31,10 @@ CHART_WEEKS = 5  # 주 정렬 창 (Kane 지정 2026-07-18): 4주 전 월요일 ~
 
 # 색 규칙: 기존 차트 컨벤션 (UP 빨강 / DOWN 파랑 / NEUTRAL 회색, RV_fast = λ=0.90 보라)
 C_IV, C_RV, C_RVF = "#ef5350", "#1976D2", "#7B1FA2"
+# YZ20 (개선 8, 2026-08-07) — RV 계열이므로 파랑 가족이되 RV20(진파랑)·RV_fast(보라)와
+# 구분되는 청록. ⚠ G2 의 C_SKEW(#00897B)와 같은 색을 쓰지 않는다 (다른 도형이라 충돌은
+# 없지만, 보고서 전체에서 색-의미 대응이 흔들리면 읽는 사람이 헷갈린다).
+C_YZ = "#26A69A"
 C_NEUT, C_ALERT, C_SKEW, C_S = "#666666", "#E8710A", "#00897B", "#333333"
 # 날개 두께 (개선 6·7, 2026-08-04) — 대시보드 optgauge_view 와 같은 색 규약.
 # ⚠ Skew(C_SKEW 청록)와 **같은 도형에 들어가므로 청록 계열을 쓰면 안 된다**
@@ -162,6 +166,13 @@ def fig_g1(df, i):
     if "RV_fast" in d.columns:
         fig.add_trace(go.Scatter(x=x, y=d["RV_fast"], name="RV_fast",
                                  line=dict(color=C_RVF, width=1.0), connectgaps=False), 1, 1)
+    # 개선 8 (2026-08-07): YZ20 병기. on_share 는 **차트에 넣지 않는다** — 단위(%비중)가
+    # 달라 같은 패널에 못 올리고, 3행으로 늘리면 320→420px 로 커져 메일 2단이 깨진다.
+    if "YZ20" in d.columns:
+        fig.add_trace(go.Scatter(x=x, y=d["YZ20"], name="YZ20",
+                                 line=dict(color=C_YZ, width=1.2, dash="dashdot"),
+                                 connectgaps=False,
+                                 hovertemplate="%{y:.2f}%<extra>YZ20</extra>"), 1, 1)
     vrp = d["VRP"].to_numpy(dtype=float)
     fig.add_trace(go.Scatter(x=x, y=np.where(vrp < 0, vrp, 0.0), mode="lines",
                              line=dict(width=0), fill="tozeroy",

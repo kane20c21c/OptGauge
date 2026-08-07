@@ -25,6 +25,10 @@ TS_COND_DIVERGE = 15.0  # G3: 조건부 vs 무조건부 백분위 괴리 임계 
 FLAG_LO, FLAG_HI = 5.0, 95.0  # normalize 플래그 경계 미러 (판정 갈림 감지용)
 SHOCK_LOOKBACK = 20    # 함정 7: 직전 20거래일(=RV20 윈도) 내 쇼크 → 후행 잔상
 SHOCK_RET = 3.0        # 함정 7: 쇼크 판정 — 지수 일간 |수익률| ≥ 3%
+YZ_NARR_WINDOW = 20    # 개선 8: YZ 창 (metrics.YZ_WINDOW 와 동일해야 함 — 창 이탈 고지용)
+YZ_EXIT_RET = 5.0      # 창 이탈 고지 임계 — |일간 수익률| ≥ 5% (명세서 v0.3 함정 ⓑ).
+                       # SHOCK_RET(3%)보다 높게 잡은 이유: 3% 는 2026 레짐에서 너무 흔해
+                       # 매일 고지가 뜬다 ("매일 말하는 게이지는 노이즈 발생기").
 SHOCK_DIV = 10.0       # 함정 7: 쇼크 판정 — |ΔATM_IV| ≥ 10%p
 REGIME_SAT = 95.0      # §6: P_full ≥ 95 → 레짐 포화, 해석 주축 = 롤60·Z
 CPGAP_GATE = 8.0       # 함정 8: 차월 ATM C/P 괴리 ≥ 8%p → 저유동 산출 왜곡 후보 (초안 임계 —
@@ -62,12 +66,24 @@ def _f(v, fmt="{:.2f}", na="—"):
     return fmt.format(v) if _fin(v) else na
 
 
-def _pcts(row, m):
-    pf, p60, p250 = (row.get(f"{m}__P_full"), row.get(f"{m}__P_roll60"),
-                     row.get(f"{m}__P_roll250"))
-    z = row.get(f"{m}__Z")
-    return (f"전체 {_f(pf, '{:.0f}')}%ile · 롤60 {_f(p60, '{:.0f}')}%ile · "
-            f"롤250 {_f(p250, '{:.0f}')}%ile · Z {_f(z, '{:+.1f}')}")
+def _pcts(row, m, sample_note: str = ""):
+    """백분위 묶음 문자열.
+
+    ⚠ `{m}__P_full` **컬럼이 없으면 전체기간 항을 통째로 생략**한다 (개선 8, 2026-08-07).
+      NaN 이 아니라 컬럼 부재가 신호다 — normalize.PCT_FULL_EXCLUDE 에 든 지표는
+      표본이 짧아 '역사 전체 대비 위치'가 정의되지 않는다. "전체 —%ile" 로 찍으면
+      "아직 계산 안 됨"으로 오독되므로 아예 말하지 않는다 (Kane: 없는 것은 표시하지 마).
+      대신 sample_note 로 표본 범위를 고지한다.
+    """
+    p60, p250, z = (row.get(f"{m}__P_roll60"), row.get(f"{m}__P_roll250"),
+                    row.get(f"{m}__Z"))
+    parts = []
+    if f"{m}__P_full" in row.index:
+        parts.append(f"전체 {_f(row.get(f'{m}__P_full'), '{:.0f}')}%ile")
+    parts += [f"롤60 {_f(p60, '{:.0f}')}%ile", f"롤250 {_f(p250, '{:.0f}')}%ile",
+              f"Z {_f(z, '{:+.1f}')}"]
+    s = " · ".join(parts)
+    return f"{s}, {sample_note}" if sample_note else s
 
 
 def _flag(row, m, label: bool = False):
@@ -187,14 +203,89 @@ def _liquidity_lines(row) -> list[str]:
     return L
 
 
+def _yz_lines(df, i, row) -> list[str]:
+    """개선 8 — on_share(밤/낮 분해) 서술 + 가드 (명세서 v0.3 §8-1).
+
+    이 개선의 고유 산출물은 총량(YZ20)이 아니라 **분해**다. YZ20 은 기존 RV20 과
+    상관 0.979 로 평상시 같은 선을 그리지만, on_share 는 어디에도 없던 축이다.
+    """
+    if "on_share" not in row.index:
+        return []
+    L = []
+    note = _yz_sample_note(df)
+    L.append(f"- 오버나이트 비중 **{_f(row.get('on_share'), '{:.1f}')}%** "
+             f"({_pcts(row, 'on_share', note)}) — 실현변동이 밤(미국 세션)에서 왔는지 "
+             "낮(한국 장중)에서 왔는지. 기준 창구는 TIGER 200 ETF (지수 시가는 구성종목 "
+             "합성이라 갭을 눌러 기록 — 명세서 v0.3 §3)")
+
+    # VRP 와 VRP_YZ 의 부호가 갈리는 날에만 고지 (실측 불일치율 24.5% — 정상 출력 원칙상
+    # 일치일엔 침묵). 실현 다리를 무엇으로 재느냐가 판정을 뒤집는 날이라는 뜻이다.
+    v, vy = row.get("VRP"), row.get("VRP_YZ")
+    if _fin(v) and _fin(vy) and (v < 0) != (vy < 0):
+        L.append(f"- ⚠ 가드: VRP {v:+.2f}%p 와 VRP_YZ {vy:+.2f}%p 의 **부호가 갈림** — "
+                 "실현 다리의 추정량 선택이 판정을 가르는 날. 방향 가설: "
+                 "① 종가기준 RV20 이 단일 급변일을 통째로 흡수 (YZ 는 장중·레인지로 분산) "
+                 "② YZ 가 실현변동을 과소평가 ③ 둘 다 경계선 근처의 우연. "
+                 "**어느 쪽도 단독 확정 불가 — 병행 관측 대장(§4-2)에 적재 중**")
+
+    exit_line = _yz_window_exit(df, i)
+    if exit_line:
+        L.append(exit_line)
+    return L
+
+
+def _yz_sample_note(df) -> str:
+    """YZ 백분위의 표본 범위 고지 (함정 ⓔ) — 하드코딩 대신 실제 첫 유효일에서 유도."""
+    if "YZ20" not in df.columns:
+        return ""
+    valid = df.loc[df["YZ20"].notna(), "Date"]
+    if valid.empty:
+        return ""
+    return f"{pd.Timestamp(valid.iloc[0]):%Y-%m} 이후 표본"
+
+
+def _yz_window_exit(df, i) -> str | None:
+    """창 20 안의 급변일이 언제 빠지는지 (함정 ⓑ — 소표본 민감성).
+
+    창 20에서 극단일 1일이 빠질 때 YZ20 이 계단식으로 떨어진다. 그 하락은 '변동성이
+    진정됐다'가 아니라 **계산식의 창 이동**이므로 미리 고지한다.
+
+    ⚠ 근사다 — 실제 창은 ETF 시계열 기준이고 여기서는 게이지 행(옵션 거래일)으로 센다.
+      둘은 같은 KRX 거래일이라 통상 일치하나, 옵션 수집 갭이 있으면 어긋난다.
+    """
+    if "S" not in df.columns:
+        return None
+    lo = max(i - YZ_NARR_WINDOW + 1, 1)
+    hits = []
+    for k in range(lo, i + 1):
+        s0, s1 = df.at[k - 1, "S"], df.at[k, "S"]
+        if not (_fin(s0) and _fin(s1) and s0 > 0):
+            continue
+        r = (s1 / s0 - 1) * 100
+        if abs(r) >= YZ_EXIT_RET:
+            hits.append((df.at[k, "Date"], r, YZ_NARR_WINDOW - (i - k)))
+    if not hits:
+        return None
+    d, r, left = max(hits, key=lambda h: abs(h[1]))   # 가장 큰 급변일 하나만
+    return (f"- 가드(함정 ⓑ): 창 20 안에 지수 {r:+.1f}% 급변일({pd.Timestamp(d):%m-%d})이 있음 "
+            f"— 약 {left}거래일 뒤 창 이탈 시 YZ20 이 계단식 하락. "
+            "**그 하락은 변동 진정이 아니라 창 이동** (수치 근사 — 옵션 거래일 기준 계산)")
+
+
 def _g1(df, i, row) -> list[str]:
-    L = [f"### G1 — IV 수준·변화 (시장이 예상하는 지수의 연율 변동성 — 수준과 변화){_flag(row, 'ATM_IV', True)}{_flag(row, 'VRP', True)}{_flag(row, 'VRP_fast', True)}"]
+    L = [f"### G1 — IV 수준·변화 (시장이 예상하는 지수의 연율 변동성 — 수준과 변화){_flag(row, 'ATM_IV', True)}{_flag(row, 'VRP', True)}{_flag(row, 'VRP_fast', True)}{_flag(row, 'YZ20', True)}{_flag(row, 'on_share', True)}"]
     iv = row["ATM_IV"]
     monthly = iv / np.sqrt(12) if np.isfinite(iv) else np.nan
     L.append(f"- ATM IV **{_f(iv)}%** ({_pcts(row, 'ATM_IV')}) · "
              f"ΔIV {_f(row.get('dATM_IV'), '{:+.2f}')}%p · 월환산 ±{_f(monthly, '{:.1f}')}% (함정 3: 연율 변동성이지 이론가 대비 %가 아님)")
-    L.append(f"- RV20 {_f(row['RV20'])} / RV_fast {_f(row['RV_fast'])} → "
-             f"VRP **{_f(row['VRP'], '{:+.2f}')}%p** / VRP_fast {_f(row['VRP_fast'], '{:+.2f}')}%p")
+    # 개선 8 (2026-08-07): YZ20 병기. **VRP 의 주(主)는 RV20** — YZ 는 참고값이다
+    # (개선 6 에서 basis_adj 를 주로 둔 것과 반대 방향인데 의도적: basis 는 naive 쪽의
+    #  기계적 편향이 입증됐고, 여기는 아직 그 증거가 없다. 60거래일 병행이 증거를 만든다).
+    yz_txt = f" / YZ20 {_f(row.get('YZ20'))}" if "YZ20" in row.index else ""
+    vrp_yz = f" (참고 VRP_YZ {_f(row.get('VRP_YZ'), '{:+.2f}')}%p)" if "VRP_YZ" in row.index else ""
+    L.append(f"- RV20 {_f(row['RV20'])} / RV_fast {_f(row['RV_fast'])}{yz_txt} → "
+             f"VRP **{_f(row['VRP'], '{:+.2f}')}%p** / VRP_fast {_f(row['VRP_fast'], '{:+.2f}')}%p{vrp_yz}")
+    L += _yz_lines(df, i, row)
     L += _liquidity_lines(row)
 
     # 급변일 IV 무반응 관측 (2026-07-13 실측: -9.9% 급락에 ΔIV +0.4%p — 레벨 포화 레짐 지문 후보)
@@ -519,7 +610,11 @@ def _summary_flags(row, metrics) -> str:
 METRICS = ["ATM_IV", "Skew", "TS_diff", "PCR_OI_all", "VK", "VRP", "VRP_fast",
            "VK_basis", "VK_basis_adj",            # 개선 1 (2026-07-29) · 개선 6 (2026-08-04)
            "BF_05s", "BF_blend30",                # 개선 2 (2026-07-29) · 개선 7 (2026-08-04)
-           "CPgap_front"]            # 개선 5 대체안 — pipeline.METRICS 와 동일 집합 유지
+           "CPgap_front",            # 개선 5 대체안 — pipeline.METRICS 와 동일 집합 유지
+           "YZ20", "on_share"]       # 개선 8 (2026-08-07)
+# ⚠ 이 리스트는 pipeline.METRICS 의 **복제본**이다 (narrate 가 pipeline 을 import 하지
+#   않으려는 계층 분리 때문). 한쪽만 고치면 신규 지표의 플래그가 요약 줄에서 조용히
+#   사라진다 — 실제로 개선 8 에서 발생했다. V10-7 이 두 집합의 일치를 강제한다.
 
 # 헤드라인 플래그 요약 전용 집합 — naive VK_basis 제외 (개선 6, 2026-08-04).
 # 컬럼·플래그는 그대로 산출·보관하되(진단용 병기), **요약 줄에는 올리지 않는다**:

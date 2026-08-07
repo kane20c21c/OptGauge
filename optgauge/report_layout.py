@@ -56,7 +56,7 @@ S = {
 }
 
 CHART_CAP = {
-    "G1": "ATM IV · RV20 · RV_fast",
+    "G1": "ATM IV · RV20 · RV_fast · YZ20",
     "G2": "Skew · BF (기울기 · 날개 두께)",
     "G3": "TS_diff · 잔존만기",
     "G4": "PCR · OI",

@@ -16,6 +16,14 @@ OPT_DIR = LLV_PATH / "data" / "options"
 OPT_EVE_DIR = LLV_PATH / "data" / "options_eve"  # KIS 저녁 잠정본 (2026-07-20 도입)
 IDX_DIR = LLV_PATH / "data" / "ohlcv" / "tickers"
 GAUGE_DIR = LLV_PATH / "data" / "indicators"  # 게이지 산출 보관 (2026-07-20 LLV 이관)
+CORE_PARQUET = LLV_PATH / "data" / "ohlcv" / "core.parquet"  # 코어 종목 (YZ 다리 — 개선 8)
+
+# 개선 8 (2026-08-07 Kane 결정 2): 실현변동성 YZ 의 기준 창구.
+# KOSPI200 **지수** 가 아니라 TIGER 200 **ETF** 를 쓴다 — 지수 시가는 구성종목 합성이라
+# 개장 직후 미체결 종목의 전일가가 잔존해 오버나이트 갭 성분이 눌린다 (2026-07-31 실측:
+# 지수 갭 +0.95% vs ETF 갭 +10.71%). 총량은 상관 0.9948 로 사실상 같으나 **분해가 다르다**.
+# 상세: docs/YZ_게이지_사양_v0.3.md §3.
+YZ_TICKER = "102110"
 
 
 def _dates_in(d: Path) -> set[str]:
@@ -52,6 +60,30 @@ def load_index(ticker: str) -> pd.DataFrame:
         raise FileNotFoundError(f"지수 parquet 없음: {path}")
     df = pd.read_parquet(path)
     return df.sort_values("Date").reset_index(drop=True)
+
+
+def load_yz_source(ticker: str = YZ_TICKER) -> pd.DataFrame:
+    """YZ 다리 원천 — LLV core.parquet 의 해당 종목 행 (Date 오름차순).
+
+    반환 컬럼: Date, Open, High, Low, Close, YZ_20, YZ_20_Ann
+      - `YZ_20`     일간 σ (원시, 무단위)  → on_share **분모** (제곱해서 사용)
+      - `YZ_20_Ann` 연율 % (σ×√252×100)  → 게이지 `YZ20` 값
+
+    ⚠ 두 컬럼의 배율은 √252×100 = 1587.45 — 바꿔 쓰면 on_share 가 250만 배 어긋난다
+      (명세서 v0.3 함정 ⓓ). 여기서 둘 다 넘기고, 용도 구분은 metrics 가 책임진다.
+
+    수식은 **LLV 소유** (`stolab_data.indicator_calculator._add_yz_vol`) — OptGauge 는
+    읽기만 한다 (Kane 결정 2, 2026-08-07). 파일/컬럼 부재 시 빈 DataFrame 반환
+    (게이지 산출 자체는 계속 — YZ 컬럼만 NaN).
+    """
+    cols = ["Date", "Open", "High", "Low", "Close", "YZ_20", "YZ_20_Ann"]
+    if not CORE_PARQUET.exists():
+        return pd.DataFrame(columns=cols)
+    df = pd.read_parquet(CORE_PARQUET)
+    if "Ticker" not in df.columns or not set(cols) <= set(df.columns):
+        return pd.DataFrame(columns=cols)
+    sub = df.loc[df["Ticker"].astype(str) == str(ticker), cols]
+    return sub.sort_values("Date").reset_index(drop=True)
 
 
 def load_gauge(layer: str = "b") -> pd.DataFrame:
