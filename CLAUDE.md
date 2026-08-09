@@ -40,6 +40,17 @@
   대시보드는 전문 유지(가설·원칙 포함). 스타일은 전부 인라인(메일 클라이언트 대비).
   종전 슬림안(2026-07-20, 요약 + G1 차트 1장)과 쉬운번역 별도 박스는 폐지.
   미리보기: `python3 scripts/preview_mail.py` → output/preview_mail.html (발송 없음).
+  **[폭·렌더 고정 2026-08-09 Kane]** ① 2단 표는 `table-layout:fixed` + 열 폭 정본
+  `report_layout.COL_L/COL_R`(56%/44%) — 상단 지수 표와 게이지 표가 **같은 상수를 공유**한다.
+  auto 였을 때 상단 44% vs 게이지 61%(실측)로 어긋났고, plotly div 는 JS 실행 시점에
+  폭이 정해져 파싱 중 레이아웃과 최종 레이아웃이 달라 G1 범례까지 겹쳤다.
+  ② plotly.js 번들은 `narrate_daily` 가 **`<head>` 에 한 번**만 넣는다 — 종전엔
+  '첫 `_div()` 호출'에 인라인했는데, main 이 G1 을 먼저 만들고 상단 KOSPI200 을 나중에
+  만들면서 번들이 G1 블록에 실려 **상단 일봉이 빈 상자**로 나왔다(DOM 순서상 newPlot 이
+  라이브러리보다 먼저 실행 → ReferenceError). 생성 순서 의존 자체를 제거.
+  ③ `narrate_daily` 재실행 시 번역 API 가 실패하면 **같은 보고일의 기존
+  daily_report_easy.md 를 재사용**한다(날짜 불일치면 사용 금지) — 레이아웃만 고치려고
+  다시 돌렸다가 쉬운 해석이 사라지는 것을 막는다.
 - **대시보드 = 아웃퍼포머(homalone, Streamlit :8501) `app/pages/10_옵션게이지.py`**
   **[확정 2026-07-19 Kane — StockPortfolio :8000 에서 변경, v1 구현·배포 완료 (homalone e2770fa)]**:
   게이지 parquet 읽기 전용 소비 (LLV `data/indicators/` — 2026-07-20 이관 완료)

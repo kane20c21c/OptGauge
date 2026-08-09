@@ -42,6 +42,13 @@ S = {
              "margin-right:5px;vertical-align:1px;font-weight:700;background:#eef2f6;color:#5b6b7c;",
     "tag_i": "display:inline-block;font-size:10.5px;padding:0 5px;border-radius:4px;"
              "margin-right:5px;vertical-align:1px;font-weight:700;background:#e8f0fb;color:#1976D2;",
+    # ⚠ table-layout:fixed 정본 (2026-08-09 Kane) — auto 였을 때 상단 지수 표(44%)와
+    # 게이지 표(실측 61%)의 실제 렌더 폭이 어긋났다. auto 는 셀 내용의 고유폭으로
+    # 지정 %를 덮어쓰는데, plotly div 는 JS 실행 시점에 폭이 정해져 파싱 중 레이아웃과
+    # 최종 레이아웃이 달라진다 (G1 범례 겹침의 원인이기도 했다). fixed 는 첫 행의
+    # 지정 폭만으로 열을 확정하므로 모든 차트가 같은 폭 · 같은 시점 폭으로 그려진다.
+    "tbl": "border-collapse:collapse;table-layout:fixed;width:100%;",
+    "td_l": "padding-right:14px;overflow-wrap:break-word;",
     "viz": "border:1px solid #dde5ec;border-radius:10px;padding:6px 4px 0;background:#fff;",
     "cap": "font-size:10.5px;color:#94a3b8;margin:2px 0 4px;text-align:center;",
     "fn": "color:#8a8f98;font-size:10px;font-weight:700;",
@@ -54,6 +61,10 @@ S = {
            "border-radius:8px;padding:8px 14px;font-size:13px;margin:16px 0 4px;",
     "footer": "color:#8a8f98;font-size:11.5px;line-height:1.6;margin-top:12px;",
 }
+
+# 2단 열 폭 정본 — 상단 지수 표와 게이지 표가 **같은 값을 공유**한다 (Kane 2026-08-09:
+# "게이지 1~5 그래프 폭을 상단 KOSPI200 과 동일하게"). 한쪽만 바꾸면 다시 어긋난다.
+COL_L, COL_R = "56%", "44%"
 
 CHART_CAP = {
     "G1": "ATM IV · RV20 · RV_fast · YZ20",
@@ -261,9 +272,9 @@ def gauge_block(sec: Section, easy_text: str, chart_html: str,
         return f'<div style="{S["g"]}">{_title_html(sec.title, marks)}{left}</div>'
     return (f'<div style="{S["g"]}">{_title_html(sec.title, marks)}'
             f'<table width="100%" cellpadding="0" cellspacing="0" border="0" '
-            f'style="border-collapse:collapse;">'
-            f'<tr><td valign="top" width="56%" style="padding-right:14px;">{left}</td>'
-            f'<td valign="top" width="44%">{right}</td></tr></table></div>')
+            f'style="{S["tbl"]}">'
+            f'<tr><td valign="top" width="{COL_L}" style="{S["td_l"]}">{left}</td>'
+            f'<td valign="top" width="{COL_R}">{right}</td></tr></table></div>')
 
 
 def build_body(report: Report, easy: Easy, charts: dict[str, str], *,
@@ -290,9 +301,9 @@ def build_body(report: Report, easy: Easy, charts: dict[str, str], *,
     if head_chart:
         parts.append(
             f'<table width="100%" cellpadding="0" cellspacing="0" border="0" '
-            f'style="border-collapse:collapse;">'
-            f'<tr><td valign="top" width="56%" style="padding-right:14px;">{intro}</td>'
-            f'<td valign="top" width="44%"><div style="{S["viz"]}">{head_chart}</div>'
+            f'style="{S["tbl"]}">'
+            f'<tr><td valign="top" width="{COL_L}" style="{S["td_l"]}">{intro}</td>'
+            f'<td valign="top" width="{COL_R}"><div style="{S["viz"]}">{head_chart}</div>'
             f'<div style="{S["cap"]}">KOSPI200 (일봉)</div></td></tr></table>')
     else:
         parts.append(intro)

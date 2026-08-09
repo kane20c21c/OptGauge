@@ -17,6 +17,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.offline import get_plotlyjs
 from plotly.subplots import make_subplots
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -73,9 +74,6 @@ def _candle_fig(df, i, ticker: str, fallback_col: str, name: str) -> go.Figure:
                                  hovertemplate="%{y:.2f}<extra>" + name + "</extra>"))
     return fig
 
-_first_chart = True
-
-
 def _mini_layout(fig: go.Figure, height: int, legend: bool) -> None:
     fig.update_layout(
         height=height, template="plotly_white", hovermode="x unified",
@@ -89,11 +87,15 @@ def _mini_layout(fig: go.Figure, height: int, legend: bool) -> None:
 
 
 def _div(fig: go.Figure) -> str:
-    """plotly JS 는 첫 차트에만 인라인 포함 (이후 차트는 재사용)."""
-    global _first_chart
-    inc = "inline" if _first_chart else False
-    _first_chart = False
-    return fig.to_html(full_html=False, include_plotlyjs=inc,
+    """차트 div 만 — plotly.js 번들은 **<head> 에 한 번** 넣는다 (main 참조).
+
+    ⚠ 2026-08-09 사고: 종전에는 '첫 _div() 호출'에 번들을 인라인했는데, main 이
+    게이지(G1)를 먼저 만들고 상단 KOSPI200 을 나중에 만들면서 **번들이 G1 블록에**
+    실렸다. DOM 순서는 KOSPI200 이 먼저이므로 브라우저가 Plotly 정의 전에
+    newPlot 을 실행 → ReferenceError → 상단 일봉이 빈 상자로 나왔다.
+    '생성 순서'와 'DOM 순서'가 어긋나면 언제든 재발하므로, 순서 의존 자체를 없앤다.
+    """
+    return fig.to_html(full_html=False, include_plotlyjs=False,
                        default_width="100%", default_height=f"{fig.layout.height}px")
 
 
@@ -367,10 +369,22 @@ def main() -> None:
     except Exception:
         easy_md = None
     m_date = re.search(r"^# OptGauge 일일 보고 — (\d{4}-\d{2}-\d{2})", report, re.M)
+    easy_path = out_dir / "daily_report_easy.md"
     if easy_md and m_date:
-        (out_dir / "daily_report_easy.md").write_text(
+        easy_path.write_text(
             f"<!-- report_date: {m_date.group(1)} -->\n{easy_md}\n", encoding="utf-8")
         print("쉬운 번역: 생성됨")
+    elif m_date and easy_path.exists():
+        # 재실행 폴백 (2026-08-09): 같은 보고일의 번역이 이미 있으면 그것을 쓴다.
+        # 레이아웃 수정 등으로 html 만 다시 만들 때 API 실패가 쉬운 해석을 지우는
+        # 것을 막는다. ⚠ **날짜가 일치할 때만** — 옛 번역 재사용은 숫자 오전달보다
+        # 나쁜 사고다 (send_report._easy_md 와 같은 규율).
+        first, _, cached = easy_path.read_text(encoding="utf-8").partition("\n")
+        if f"report_date: {m_date.group(1)}" in first:
+            easy_md = cached
+            print("쉬운 번역: 기존 파일 재사용 (같은 보고일 — API 실패/키 없음)")
+        else:
+            print("쉬운 번역: 생략 (기존 파일은 다른 보고일 — 재사용 금지)")
     else:
         print("쉬운 번역: 생략 (키 없음/API 실패 — 보고는 정상 진행)")
 
@@ -386,9 +400,13 @@ def main() -> None:
     footer_html = "".join(f'<p style="{rl.S["footer"]}">{rl.inline(l)}</p>'
                           for l in rep.footer.splitlines() if l.strip())
 
+    # plotly.js 번들은 <head> 에 단 한 번 — 모든 newPlot 보다 반드시 먼저 정의된다
+    # (_div 주석의 2026-08-09 사고 참조). offline 인라인이라 네트워크 불요.
+    plotly_js = f"<script>{get_plotlyjs()}</script>"
+
     html = (f"<!DOCTYPE html><html lang=\"ko\"><head><meta charset=\"utf-8\">"
             f"<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-            f"<title>OptGauge 일일 보고</title><style>{_CSS}</style></head>"
+            f"<title>OptGauge 일일 보고</title><style>{_CSS}</style>{plotly_js}</head>"
             f"<body><div style=\"{rl.S['wrap']}\">{body}<hr>{footer_html}</div></body></html>")
     (out_dir / "daily_report.html").write_text(html, encoding="utf-8")
 
