@@ -18,3 +18,6 @@ output/daily_report_easy.md
 output/preview_mail.html
 # 잠정 vs 확정 비교 산출 (2026-08-06 저녁 체인 폐지 근거 데이터)
 output/prov_vs_final.csv
+# YZ 병행 관측 대장 (개선 8 W6) — run_daily.sh 가 매일 전 기간 재계산·덮어쓰기.
+# 멱등이라 언제든 복원되므로 커밋하지 않는다 (2026-08-25).
+output/yz_parallel_log.csv

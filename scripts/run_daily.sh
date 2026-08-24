@@ -34,6 +34,14 @@ print(f"게이지 신선도 OK: {last_gauge}")
 GUARD
   "$PY" scripts/narrate_daily.py
   "$PY" scripts/send_report.py
+  # [2026-08-25 Kane 승인] YZ 병행 관측 대장 (개선 8 W6 · 명세서 v0.3 §4-2).
+  # 도입 시(2026-08-07) 배치에 안 엮여 소급 1회만 적재되고 그 뒤로 갱신이 멈춰 있었다.
+  # ⚠ 발송 **뒤**에 두고 실패를 삼킨다 — 이건 병행 판정용 관측 자료이지 보고 체인의
+  #    일부가 아니다. 여기서 죽어도 메일은 이미 나갔고, ERR trap 오알림도 막는다.
+  #    전 기간 멱등 재계산이라 하루 걸러도 다음 실행이 복원한다 (fwd_* 는 시간이 채움).
+  # ⚠ 한시적 — 병행 종료 판정(v0.3 §11-3) 후 이 블록과 스크립트를 함께 제거할 것.
+  "$PY" scripts/yz_parallel_log.py \
+    || echo "⚠ yz_parallel_log 실패 — 보고 체인 영향 없음 (다음 실행이 복원)"
   # [2026-08-06 Kane 결정] 저녁 잠정 체인 폐지 — verify_provisional /
   # check_provisional_stale 단계 제거 (scripts/archive/ 로 이동).
   # 근거: 12거래일 실측에서 KIS 잠정 IV 가 KRX 확정과 계통적으로 달랐다
