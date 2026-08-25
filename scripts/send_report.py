@@ -24,11 +24,13 @@ from pathlib import Path
 
 import pandas as pd
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[1]   # OptGauge/
+STOLAB_ROOT = PROJECT_ROOT.parent                    # StoLab/
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
-MORNINGBRIEF = Path.home() / "DriveForALL" / "StoLab" / "MorningBrief" / "scripts"
+# MorningBrief 는 StoLab/ 아래 형제 저장소 — 머신(미니/에어) 무관 상대 경로.
+MORNINGBRIEF = STOLAB_ROOT / "MorningBrief" / "scripts"
 sys.path.insert(0, str(MORNINGBRIEF))
 
 from lib.env_loader import load_env, get_env, get_recipients  # MorningBrief 공용 모듈

@@ -62,7 +62,7 @@
 ## 데이터 소스 (전부 LLV 경유)
 
 ```python
-import sys; sys.path.insert(0, "~/DriveForALL/StoLab/longlivevault")  # 경로는 .env/설정으로
+import sys; sys.path.insert(0, "../LongLiveVault")  # StoLab/ 아래 형제 저장소 (.env LLV_PATH 로 오버라이드)
 from stolab_data.data_service import (
     get_option_daily, get_option_range,   # 옵션/선물 일별 (kind="opt"/"fut")
     get_ohlcv,                            # KOSPI200/VKOSPI parquet (Ticker 지정)

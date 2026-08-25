@@ -5,10 +5,14 @@
 # 여기서는 소비만: 신선도 확인 → narrate_daily → send_report (실패 시 에러 알림)
 # [2026-08-06] 옵션 게이지는 **아침 체인 단독** — 저녁 잠정(19:00 LLV / 19:30 OptGauge)은 폐지.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+# 스크립트 위치 기준 저장소 루트로 이동 (머신 무관 — 미니/에어 공용)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR/.."
 
 PY=/usr/local/bin/python3
-MB="$HOME/DriveForALL/StoLab/MorningBrief/scripts"
+# MorningBrief 는 StoLab/ 아래 형제 저장소. scripts/ → OptGauge/ → StoLab/
+STOLAB_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+MB="$STOLAB_ROOT/MorningBrief/scripts"
 LOG_DIR="output/logs"; mkdir -p "$LOG_DIR"
 LOG="$LOG_DIR/daily_$(date +%Y%m%d).log"
 

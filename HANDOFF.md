@@ -1,5 +1,8 @@
 # OptGauge — 이관 안내서 (HANDOFF.md)
 
+> **`$STOLAB`** = 이 기계의 StoLab 루트 (기계마다 다르다 — 맥미니 운영본과 맥에어
+> 개발본의 위치가 같지 않다). 아래 셸 명령은 `export STOLAB=<StoLab 루트>` 를 전제한다.
+
 **기준일** 2026-08-25 (KST) · **기준 커밋** `90a4f87` (2026-08-09, main) ·
 **원격** `https://github.com/kane20c21c/OptGauge.git`
 
@@ -97,7 +100,7 @@ OptGauge 는 KOSPI200 파생시장의 **자세(posture)를 매일 기술하는 �
 ## 4. 폴더 구조
 
 ```
-~/DriveForALL/StoLab/OptGauge/
+$STOLAB/OptGauge/
 ├── CLAUDE.md                  ★ 설계 결정 정본 (소유권 원칙·데이터 소스·핵심 결정)
 ├── HANDOFF.md                   이 문서
 ├── pytest.ini                   archive/ 수집 제외 (폐지 기능의 회귀 테스트 보관소)
@@ -159,7 +162,7 @@ OptGauge 는 KOSPI200 파생시장의 **자세(posture)를 매일 기술하는 �
 | 빌드 순서 | `optgauge/pipeline.py` — LLV 는 호출만 |
 | 보고 레이아웃 | `optgauge/report_layout.py` — 메일·대시보드 공유 |
 | 쉬운 번역 어휘 | `docs/쉬운번역_가이드.md` |
-| 게이지 parquet | **LLV** `~/DriveForALL/StoLab/longlivevault/data/indicators/` |
+| 게이지 parquet | **LLV** `$STOLAB/longlivevault/data/indicators/` |
 | 스케줄 plist | `configs/launchd/` (LaunchAgents 는 symlink) |
 
 ---
@@ -266,7 +269,7 @@ OptGauge 는 KOSPI200 파생시장의 **자세(posture)를 매일 기술하는 �
 경로가 코드에 박혀 있다. 아래 구조를 **그대로** 만드는 것이 가장 빠르다.
 
 ```
-~/DriveForALL/StoLab/
+$STOLAB/
 ├── OptGauge/          ← 이 리포                 (OPTGAUGE_PATH 로 오버라이드 가능)
 ├── longlivevault/     ← 필수. 없으면 아무것도 안 됨 (LLV_PATH 로 오버라이드 가능)
 ├── MorningBrief/      ← 필수. 메일·API 키 자격증명  (오버라이드 불가 — 코드에 고정)
@@ -313,7 +316,7 @@ pip3 install --break-system-packages pandas numpy plotly kaleido pytest
 ## 부록 — 새 기계 이관 체크리스트
 
 1. **코드** — `OptGauge` · `longlivevault` · `homalone` · `StockPortfolio` · `MorningBrief` 를
-   `~/DriveForALL/StoLab/` 아래 같은 이름으로 clone.
+   `$STOLAB/` 아래 같은 이름으로 clone.
 2. **패키지** — §7-4.
 3. **자격증명** — LLV `.env`(KRX drv 권한 포함·KIS), MorningBrief `.env`(Gmail·Anthropic).
    ⚠ 새 계정으로 옮기는 경우 **KRX drv 권한 신청이 가장 오래 걸린다.**
@@ -325,7 +328,7 @@ pip3 install --break-system-packages pandas numpy plotly kaleido pytest
 6. **검증** (순서대로)
 
 ```bash
-cd ~/DriveForALL/StoLab/OptGauge
+cd $STOLAB/OptGauge
 python3 -m pytest tests/ -q                  # ① 게이트 — 전건 통과 (V10 일부 skip 가능)
 python3 -c "from optgauge.data_access import list_opt_dates, load_gauge; \
             print(list_opt_dates()[-1], load_gauge()['Date'].max())"   # ② 데이터 도달

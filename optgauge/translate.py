@@ -42,7 +42,8 @@ def _api_key() -> str | None:
     if key:
         return key
     try:  # MorningBrief .env 폴백 (send_report 와 동일 경로)
-        mb = Path.home() / "DriveForALL" / "StoLab" / "MorningBrief" / "scripts"
+        # StoLab/ 아래 형제 저장소 — 머신(미니/에어) 무관 상대 경로
+        mb = Path(__file__).resolve().parents[2] / "MorningBrief" / "scripts"
         if str(mb) not in sys.path:
             sys.path.insert(0, str(mb))
         from lib.env_loader import load_env, get_env  # type: ignore

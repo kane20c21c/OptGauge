@@ -2,7 +2,7 @@
 
 원칙: LLV 가 만든 parquet 만 읽는다 (수집 로직 금지 — OptGauge/CLAUDE.md).
 지수 parquet 직접 읽기는 프로토타입 한정 — LLV 에 지수 조회 진입점이 생기면 교체.
-경로는 환경변수 LLV_PATH 로 오버라이드 가능 (기본: ~/DriveForALL/StoLab/longlivevault).
+경로는 환경변수 LLV_PATH 로 오버라이드 가능 (기본: StoLab/LongLiveVault — 형제 저장소).
 """
 from __future__ import annotations
 
@@ -11,7 +11,12 @@ from pathlib import Path
 
 import pandas as pd
 
-LLV_PATH = Path(os.getenv("LLV_PATH", str(Path.home() / "DriveForALL" / "StoLab" / "longlivevault")))
+# LLV 는 StoLab/ 아래 형제 저장소 — 머신(미니/에어) 무관 상대 경로.
+# 빈 값은 미설정 취급(`or`), "~/..." 표기는 expanduser 로 편다.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]   # OptGauge/
+STOLAB_ROOT = PROJECT_ROOT.parent                    # StoLab/
+
+LLV_PATH = Path(os.getenv("LLV_PATH") or str(STOLAB_ROOT / "LongLiveVault")).expanduser()
 OPT_DIR = LLV_PATH / "data" / "options"
 OPT_EVE_DIR = LLV_PATH / "data" / "options_eve"  # KIS 저녁 잠정본 (2026-07-20 도입)
 IDX_DIR = LLV_PATH / "data" / "ohlcv" / "tickers"
