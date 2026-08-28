@@ -22,8 +22,9 @@ REPORT = """# OptGauge 일일 보고 — 2026-08-05 (수)
 
 ## 게이지 상세
 ### G1 — IV 수준·변화 (시장이 예상하는 지수의 연율 변동성) **[VRP LOW]**
-- ATM IV **75.88%** (전체 99%ile)
+- ATM IV **75.88%** (롤60 90%ile · 롤250 95%ile · Z +1.0)
 - RV20 109.47 → VRP **-33.60%p**
+- 관측: basis_adj 롤60 3%ile — 최근 레짐 대비 꼬리가 얇은 쪽. 방향 가설: ① OTM 재가격 ② 산출 시점 차이
 - ⚠ 가드(함정 7): VRP 음전환 19거래일째
 - 방향 가설: ① 실현변동이 IV 를 앞지르는 중
 
@@ -69,8 +70,8 @@ class TestParse:
     def test_extras_split(self):
         g1 = rl.parse_report(REPORT).sections[0]
         assert len(g1.facts) == 2                      # ATM IV · RV20
-        assert len(g1.extras) == 2                     # ⚠ 가드 · 방향 가설
-        assert all(e.startswith(("⚠", "방향 가설")) for e in g1.extras)
+        assert len(g1.extras) == 3                     # 관측 · ⚠ 가드 · 방향 가설
+        assert all(e.startswith(("⚠", "방향 가설", "관측")) for e in g1.extras)
 
     def test_sub_bullets_folded(self):
         g4 = rl.parse_report(REPORT).sections[1]
@@ -126,10 +127,36 @@ class TestBuild:
         assert "방향 가설" not in body                   # 컴팩트(메일)는 가설 제외
         assert any("함정 7" in t for t in notes.items)   # ⚠ 가드는 각주로
 
-    def test_full_keeps_everything_inline(self):
+    def test_full_keeps_guards_inline(self):
+        """대시보드는 ⚠ 가드·관측을 본문에 유지한다 (가설만 각주로 — 아래 테스트)."""
         notes = rl.Footnotes()
-        body = self._body(False, notes)
-        assert "방향 가설" in body and "함정 7" in body   # 대시보드는 전문 유지
+        main = self._body(False, notes).partition("주의 · 가드")[0]
+        assert "함정 7" in main and "basis_adj 롤60 3%ile" in main
+
+    def test_full_moves_hypothesis_to_footnote(self):
+        """[2026-08-28 Kane] 방향 가설은 대시보드에서도 본문에서 빠져 각주로 간다.
+
+        두 형태를 모두 덮는다 — ① 독립 불릿('- 방향 가설: …')은 통째로 옮기고
+        마커는 제목 옆에, ② 관측 줄 끝에 매달린 절은 그 줄에 ※n 을 남기고 잘라낸다.
+        **삭제가 아니라 이동**이므로 각주에는 반드시 남아 있어야 한다 (CLAUDE.md 의
+        '복수 후보 해석 병기' 원칙 — 보고 각주도 그렇게 선언한다).
+        """
+        notes = rl.Footnotes()
+        main, _, foot = self._body(False, notes).partition("주의 · 가드")
+        assert "방향 가설" not in main                    # 본문에서 빠졌다
+        assert "OTM 재가격" not in main and "실현변동이 IV 를 앞지르는" not in main
+        hypo = [t for t in notes.items if t.startswith("방향 가설")]
+        assert len(hypo) == 2                            # 독립 불릿 · 관측 줄 꼬리
+        assert "OTM 재가격" in foot and "실현변동이 IV 를 앞지르는" in foot
+        # 관측 줄은 사실만 남고 ※ 마커가 붙는다 (줄 자체가 사라지면 안 된다)
+        assert "꼬리가 얇은 쪽" in main and "※" in main
+
+    def test_compact_unchanged_by_hypothesis_routing(self):
+        """메일(compact)은 종전대로 가설을 **싣지 않는다** — 각주에도 올리지 않는다."""
+        notes = rl.Footnotes()
+        body = self._body(True, notes)
+        assert "방향 가설" not in body and "OTM 재가격" not in body
+        assert not any(t.startswith("방향 가설") for t in notes.items)
 
     def test_no_escaped_markup_leak(self):
         for compact in (True, False):

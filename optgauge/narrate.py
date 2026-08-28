@@ -67,22 +67,22 @@ def _f(v, fmt="{:.2f}", na="—"):
 
 
 def _pcts(row, m, sample_note: str = ""):
-    """백분위 묶음 문자열.
+    """백분위 묶음 문자열 — **롤60 · 롤250 · Z** 만.
 
-    ⚠ `{m}__P_full` **컬럼이 없으면 전체기간 항을 통째로 생략**한다 (개선 8, 2026-08-07).
-      NaN 이 아니라 컬럼 부재가 신호다 — normalize.PCT_FULL_EXCLUDE 에 든 지표는
-      표본이 짧아 '역사 전체 대비 위치'가 정의되지 않는다. "전체 —%ile" 로 찍으면
-      "아직 계산 안 됨"으로 오독되므로 아예 말하지 않는다 (Kane: 없는 것은 표시하지 마).
-      대신 sample_note 로 표본 범위를 고지한다.
+    [2026-08-28 Kane] 게이지 상세에서 **전체기간 항(P_full)을 표시하지 않는다**.
+    "롤60·롤250까지면 충분" — 2026 극단 레짐에서 전체기간 백분위는 연중 포화라
+    (CLAUDE.md 핵심 결정) 매 줄에 붙는 95~99%ile 이 정보가 아니라 소음이었다.
+    ⚠ **산출은 그대로다** (normalize 는 P_full 을 계속 만든다) — 표시만 끈다.
+      대시보드 히트맵 등 다른 소비자가 컬럼을 읽고, 요약 첫 줄의 레짐 포화 판정
+      (`_headline` REGIME_SAT)도 P_full 을 계속 쓴다. 여기서 지우는 것은 서술뿐.
+    ⚠ 종전에는 `{m}__P_full` 컬럼 부재를 신호로 삼아 전체 항을 생략했다 (개선 8,
+      2026-08-07 — PCT_FULL_EXCLUDE). 이제 전 지표가 같은 형식이므로 그 분기는
+      사라졌지만, 짧은 표본을 고지하는 sample_note 는 그대로 살아 있다.
     """
     p60, p250, z = (row.get(f"{m}__P_roll60"), row.get(f"{m}__P_roll250"),
                     row.get(f"{m}__Z"))
-    parts = []
-    if f"{m}__P_full" in row.index:
-        parts.append(f"전체 {_f(row.get(f'{m}__P_full'), '{:.0f}')}%ile")
-    parts += [f"롤60 {_f(p60, '{:.0f}')}%ile", f"롤250 {_f(p250, '{:.0f}')}%ile",
-              f"Z {_f(z, '{:+.1f}')}"]
-    s = " · ".join(parts)
+    s = " · ".join([f"롤60 {_f(p60, '{:.0f}')}%ile", f"롤250 {_f(p250, '{:.0f}')}%ile",
+                    f"Z {_f(z, '{:+.1f}')}"])
     return f"{s}, {sample_note}" if sample_note else s
 
 
@@ -192,7 +192,7 @@ def _liquidity_lines(row) -> list[str]:
     cg = row.get("CPgap_front")
     if not _fin(cg):
         return []
-    L = [f"- 유동성 대리(개선 5 대체): 근월 ATM C/P IV 괴리 **{cg:.2f}%p** "
+    L = [f"- 유동성 대리: 근월 ATM C/P IV 괴리 **{cg:.2f}%p** "
          f"({_pcts(row, 'CPgap_front')}){_flag(row, 'CPgap_front')} — "
          "가장 촘촘해야 할 지점의 가격 마찰. 호가 스프레드 자체는 아님(대리)"]
     fl = row.get("CPgap_front__flag")
@@ -213,10 +213,10 @@ def _yz_lines(df, i, row) -> list[str]:
         return []
     L = []
     note = _yz_sample_note(df)
+    # [2026-08-28] 창구 설명(밤/낮 분해의 정의 · TIGER 200 채택 근거)은 매일 같은
+    # 상수문이라 서술에서 뺐다 — 정본은 명세서 v0.3 §3.
     L.append(f"- 오버나이트 비중 **{_f(row.get('on_share'), '{:.1f}')}%** "
-             f"({_pcts(row, 'on_share', note)}) — 실현변동이 밤(미국 세션)에서 왔는지 "
-             "낮(한국 장중)에서 왔는지. 기준 창구는 TIGER 200 ETF (지수 시가는 구성종목 "
-             "합성이라 갭을 눌러 기록 — 명세서 v0.3 §3)")
+             f"({_pcts(row, 'on_share', note)})")
 
     # VRP 와 VRP_YZ 의 부호가 갈리는 날에만 고지 (실측 불일치율 24.5% — 정상 출력 원칙상
     # 일치일엔 침묵). 실현 다리를 무엇으로 재느냐가 판정을 뒤집는 날이라는 뜻이다.
@@ -277,7 +277,7 @@ def _g1(df, i, row) -> list[str]:
     iv = row["ATM_IV"]
     monthly = iv / np.sqrt(12) if np.isfinite(iv) else np.nan
     L.append(f"- ATM IV **{_f(iv)}%** ({_pcts(row, 'ATM_IV')}) · "
-             f"ΔIV {_f(row.get('dATM_IV'), '{:+.2f}')}%p · 월환산 ±{_f(monthly, '{:.1f}')}% (함정 3: 연율 변동성이지 이론가 대비 %가 아님)")
+             f"ΔIV {_f(row.get('dATM_IV'), '{:+.2f}')}%p · 월환산 ±{_f(monthly, '{:.1f}')}%")
     # 개선 8 (2026-08-07): YZ20 병기. **VRP 의 주(主)는 RV20** — YZ 는 참고값이다
     # (개선 6 에서 basis_adj 를 주로 둔 것과 반대 방향인데 의도적: basis 는 naive 쪽의
     #  기계적 편향이 입증됐고, 여기는 아직 그 증거가 없다. 60거래일 병행이 증거를 만든다).
@@ -308,7 +308,7 @@ def _g1(df, i, row) -> list[str]:
                      "② 실현변동 재점화 (RV_fast 재상승 여부로 교차 확인) ③ IV 의 위험 저평가 지속")
         elif state == "진행중":
             L.append(f"- ⚠ 가드(함정 7): VRP 음전환 {streak}거래일째 — {why} "
-                     f"→ **쇼크 진행/직후 구간** (IV 가 실현변동을 미추종 — 잔상·경보 성분 혼재, 단정 금지)")
+                     f"→ **쇼크 진행/직후 구간**")
             L.append("- 방향 가설: ① 실현변동이 IV 를 앞지르는 중 (보험료 과소) "
                      "② 쇼크 성분의 기계적 잔향 병존 ③ IV 재가격 대기 (직후 수렴 여부 관찰)")
         else:
@@ -336,8 +336,7 @@ def _g2(df, i, row) -> list[str]:
     if "BF_05s" in row.index:   # 구버전 산출본에는 없음 → 줄 자체를 생략
         L.append(f"- BF(양 날개 볼록도) **{_f(bf, '{:+.2f}')}%p** ({_pcts(row, 'BF_05s')})"
                  f"{_flag(row, 'BF_05s')} · ΔBF {_f(row.get('dBF_05s'), '{:+.2f}')} — "
-                 "(IV_put+IV_call)/2 − ATM IV. **Skew 는 좌우 기울기(RR = −Skew), BF 는 양 날개 높이** — "
-                 "'양극단 프리미엄'을 재는 것은 BF 쪽")
+                 "(IV_put+IV_call)/2 − ATM IV. **Skew 는 좌우 기울기(RR = −Skew), BF 는 양 날개 높이**")
         # 교차검증은 **백분위**로 한다 (원값 부호가 아니라). BF 와 basis 는 단위·스케일이
         # 다르므로 부호 일치는 정보가 거의 없다 — 실제로 2026-07-28 은 부호는 같았으나
         # 롤60 백분위가 28 vs 3 으로 갈렸다 (±0.5σ 안쪽은 평범, 원격 꼬리만 얇음).
@@ -427,8 +426,10 @@ def _g3(df, i, row) -> list[str]:
                     "무조건부 위치의 일부는 만기근접 효과일 후보")
         else:
             tail = " — 두 기준 정합, 만기근접 효과로 설명되지 않는 위치"
-        L.append(f"- **조건부 위치**: 같은 잔존일수대({bk}) 과거 대비 **{pc:.0f}%ile** "
-                 f"(무조건부 전체 {pfull:.0f}%ile)" + tail)
+        # [2026-08-28] 무조건부(전체기간) 백분위는 **표시하지 않는다** — 판정에는 계속
+        # 쓴다(straddle·gap 이 pfull 로 계산된다). 화면에 두 숫자를 나란히 두면 어느
+        # 쪽을 읽어야 하는지가 매번 헷갈렸고, 답은 항상 '조건부'다.
+        L.append(f"- **조건부 위치**: 같은 잔존일수대({bk}) 과거 대비 **{pc:.0f}%ile**" + tail)
     if _fin(dte) and dte <= DTE_GUARD:
         L.append(f"- ⚠ 가드(함정 5): 잔존 ≤{DTE_GUARD}일 — 만기근접 왜곡 후보 (음편향·산포 2배 구간, 플래그 신뢰도 ↓)")
     cpn, cpf = row.get("CPgap_next"), row.get("CPgap_front")
@@ -470,8 +471,11 @@ def _oi_drift_lines(df, i, row) -> list[str]:
                    f"(스팟 성분 비중 {_f(share, '{:.0f}')}% → **{lead} 주도**)")
     if not out:
         return []
-    head = ["- **Δ괴리 분해(개선 3)**: gap = C/S − 1 이라 지수가 움직이면 OI 분포가 그대로여도 "
-            "괴리가 변한다 — 두 성분으로 분리:"]
+    # [2026-08-28] 'gap = C/S − 1 이라 지수가 움직이면…' 정의 설명은 매일 같은 상수문이라
+    # 제거. 헤더는 하위 불릿(콜·풋)의 부모 자리를 지키는 최소 형태만 남긴다 —
+    # report_layout.parse_report 가 `  - ` 를 직전 `- ` 항목에 접어 넣으므로 헤더를
+    # 통째로 지우면 분해 줄이 엉뚱하게 'OI 중심 괴리' 줄에 달라붙는다.
+    head = ["- **Δ괴리 분해**: 두 성분으로 분리:"]
     # ⚠ 결론줄 발화 규칙 (2026-07-29 실측): **스팟 주도가 정상 상태**다 —
     # 콜 82.0% / 풋 78.7% 의 날에 스팟이 주도하고, |등락|<0.5% 인 평온한 날조차
     # 스팟 비중 중앙 67.1%. 따라서 "스팟 주도"를 결론으로 매일 외치면 노이즈 발생기가 된다.
@@ -514,8 +518,10 @@ def _g4(df, i, row) -> list[str]:
     if dsr is not None and dsr <= ROLL_GUARD_DAYS:
         L.append(f"- ⚠ 가드(함정 1): 롤 후 {dsr}거래일 — OI·PCR 변화는 만기 리셋/신월물 재구축의 기계적 왜곡 후보. "
                  "해석 전 만기 캘린더 확인")
-    L.append("- 고정 원칙(함정 6): OI 는 매수·매도 쌍 — **방향 해석 금지**. 용도 = 레짐 지문 · 만기 외 Δ 급변 감지 · "
-             "스큐(가격)와 교차 읽기")
+    # [2026-08-28] '고정 원칙(함정 6)' 줄 제거 — 값과 무관하게 매일 똑같이 나오던
+    # 상수문이다. 원칙 자체는 폐기가 아니라 이관: 각주의 `docs/해석노트.md 함정 1~13`
+    # 이 정본이고, 포지션 주도일에는 _oi_drift_lines 의 결론줄이 '방향 해석 금지'를
+    # 그대로 다시 말한다 (발화일에만 — "매일 말하는 게이지는 노이즈 발생기").
     return L
 
 
@@ -538,11 +544,11 @@ def _g5(df, i, row) -> list[str]:
     # 개선 1 (2026-07-29): basis 에 다른 게이지와 동일한 백분위 체계 부여.
     # 종전에는 절대 임계(±BASIS_NOTE)만 있어 "이 레짐에서 이례적인가"를 판정할 수 없었다.
     L.append(f"- basis(VK−근월ATM) {_f(basis, '{:+.2f}')}%p ({_pcts(row, 'VK_basis')})"
-             f"{_flag(row, 'VK_basis')} — 참고·진단용 (만기 사이클 오염 포함)")
+             f"{_flag(row, 'VK_basis')}")
     # 만기왜곡분 고지 — 두 basis 가 크게 갈리는 날은 naive 를 신호로 읽으면 안 된다.
     if _fin(bias) and abs(bias) >= BASIS_BIAS_NOTE:
         ts = row.get("TS_diff")
-        L.append(f"- ⚠ 가드(함정 13 — 만기 사이클): 두 basis 차이 **{bias:+.2f}%p** "
+        L.append(f"- ⚠ 가드: 두 basis 차이 **{bias:+.2f}%p** "
                  f"= 지수 무게중심이 차월로 {_f(1 - w if _fin(w) else np.nan, '{:.0%}')} 쏠린 데서 오는 "
                  f"**기계적 성분** (≈ (1−w)×TS_diff = {_f((1 - w) * ts if _fin(w) and _fin(ts) else np.nan, '{:+.2f}')}). "
                  "표면 변화가 아니므로 naive basis 의 백분위·플래그를 꼬리 신호로 읽지 말 것")

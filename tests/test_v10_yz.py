@@ -239,18 +239,43 @@ def test_v10_4_no_p_full_for_yz_metrics():
     assert "ATM_IV__P_full" in out.columns          # 다른 지표는 종전대로
 
 
-def test_v10_4b_narrate_omits_full_term_when_absent():
-    """`_pcts` 가 P_full 컬럼 부재 시 '전체 —%ile' 을 찍지 않는다."""
+def test_v10_4b_narrate_never_prints_full_term():
+    """`_pcts` 는 **어떤 경우에도** 전체기간 항을 찍지 않는다 (2026-08-28 Kane).
+
+    ⚠ 이 테스트는 2026-08-28 에 의미가 뒤집혔다. 종전 규율은 "P_full 컬럼이 없을 때만
+      생략"(개선 8)이라 P_full 이 있는 지표는 '전체 99%ile' 을 찍는 것이 정답이었다.
+      지금은 **컬럼이 있어도 표시하지 않는다** — 롤60·롤250·Z 로 충분하고, 2026 극단
+      레짐에서 전체기간 백분위는 연중 포화라 매 줄에 붙는 95~99%ile 이 소음이었다.
+      산출(V10-4)과 표시(여기)는 별개다: PCT_FULL_EXCLUDE 규율은 그대로 살아 있고,
+      요약 첫 줄의 레짐 포화 판정은 여전히 P_full 을 읽는다 (아래 대조군).
+    """
     from optgauge.narrate import _pcts
     row = pd.Series({"on_share__P_roll60": 61.7, "on_share__P_roll250": 51.6,
                      "on_share__Z": 0.2})
     s = _pcts(row, "on_share", "2023-05 이후 표본")
     assert "전체" not in s
     assert "롤60 62%ile" in s and "2023-05 이후 표본" in s
-    # 대조군 — P_full 이 있으면 표시한다
+    # P_full 컬럼이 **있어도** 표시하지 않는다 (종전 대조군의 반전)
     row2 = pd.Series({"ATM_IV__P_full": 99.0, "ATM_IV__P_roll60": 90.0,
                       "ATM_IV__P_roll250": 95.0, "ATM_IV__Z": 1.0})
-    assert "전체 99%ile" in _pcts(row2, "ATM_IV")
+    s2 = _pcts(row2, "ATM_IV")
+    assert "전체" not in s2 and "99%ile" not in s2
+    assert "롤60 90%ile · 롤250 95%ile · Z +1.0" == s2
+
+
+def test_v10_4c_headline_still_uses_p_full():
+    """표시만 껐지 **판정은 P_full 을 계속 쓴다** — 요약 첫 줄의 레짐 포화 (REGIME_SAT).
+
+    `_pcts` 에서 전체 항을 지울 때 P_full 산출까지 함께 끄면 이 줄이 조용히 죽는다.
+    """
+    from optgauge.narrate import _headline
+    df = pd.DataFrame({"Date": pd.bdate_range("2026-08-24", periods=2),
+                       "S": [1071.0, 1088.61]})
+    row = pd.Series({"Date": df.at[1, "Date"], "S": 1088.61,
+                     "ATM_IV__P_full": 95.0, "ATM_IV__P_roll60": 2.0})
+    head = _headline(df, 1, row)
+    assert "IV 레벨 역사적 포화 (전체 95%ile)" in head   # 여기서는 전체 %ile 이 정보다
+    assert "롤60 2%ile" in head
 
 
 # ══════════════════════════════════════════════════════════

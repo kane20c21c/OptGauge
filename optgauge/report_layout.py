@@ -8,7 +8,9 @@
   - 좌측 = 기초수치(narrate 정본 bullets) + 쉬운 해석([팩트]/[해석] 2줄)
   - 우측 = 해당 게이지 차트 (대시보드=plotly div · 메일=cid 이미지)
   - ⚠ 가드는 본문에서 빼고 **하단 각주(※n, 작은 글씨)** — 메일은 제목 옆 마커,
-    대시보드는 전문 유지(본문에 남기고 각주는 쉬운번역의 '단,…' 만)
+    대시보드는 ⚠ 가드·교차확인·관측을 본문에 유지
+  - [2026-08-28 Kane] **방향 가설은 대시보드에서도 각주로** — 독립 불릿은 통째로,
+    관측·가드 줄 끝에 매달린 절은 잘라서. 메일은 종전대로 싣지 않는다
   - 스타일은 전부 **인라인** (메일 클라이언트가 <style> 을 지우는 경우 대비)
   - 쉬운 번역이 없으면(API 실패) 기초수치만으로 정상 렌더 — 발송을 막지 않는다
 """
@@ -76,6 +78,12 @@ CHART_CAP = {
 
 # 본문에서 각주로 내보낼 접두 (메일 컴팩트 모드) / 대시보드는 본문 유지
 _EXTRA_PREFIX = ("⚠", "방향 가설", "고정 원칙", "교차확인", "관측")
+
+# [2026-08-28 Kane] 방향 가설은 **대시보드에서도 본문에서 뺀다** — 하단 각주로.
+# 메일(compact)은 종전대로 아예 싣지 않는다(변화 없음). 서술 자체는 계속 생성되므로
+# CLAUDE.md 의 '복수 후보 해석 병기(단정 금지)' 원칙과 보고 각주 선언은 유지된다 —
+# 없애는 게 아니라 자리를 옮기는 것이다.
+_HYPO_PREFIX = ("방향 가설",)
 _MARK_FN = "\x00FN{}\x00"
 _MARK_TAG_F, _MARK_TAG_I = "\x02F\x02", "\x02I\x02"
 _MARK_SUB_O, _MARK_SUB_C = "\x03", "\x04"
@@ -227,6 +235,24 @@ def _split_caution(s: str, notes: Footnotes) -> str:
     return s
 
 
+# 문말 '방향 가설: ①②③ …' 절 (2026-08-28) — 독립 불릿이 아니라 **관측·가드 줄 끝에
+# 매달린** 형태를 잡는다 (예: "- 관측: … 높음 — … 후보. 방향 가설: ① … ③ …").
+# 라벨 뒤 괄호는 최대 16자까지 허용 ("방향 가설 (TS 급변):").
+_HYPO = re.compile(r"\s*[—·.]?\s*(방향 가설[^:]{0,16}:.+)$")
+
+
+def _split_hypothesis(s: str, notes: Footnotes) -> str:
+    """문말 '방향 가설 …' 절 → 각주 (앞부분이 충분히 남을 때만).
+
+    `_split_caution` 과 같은 규율 — 불릿 전체가 가설이면 본문에 두고(그건 독립 불릿
+    경로가 통째로 각주로 옮긴다), 앞에 관측 사실이 남는 줄에서만 꼬리를 자른다.
+    """
+    m = _HYPO.search(s)
+    if m and m.start() >= 15:
+        return s[:m.start()].rstrip(" —·.") + " " + notes.add(m.group(1))
+    return s
+
+
 def easy_bullets(text: str, notes: Footnotes) -> list[str]:
     """[팩트]/[해석] 두 줄로 분리 · 문말 '단,…' 주의문은 각주로 이동."""
     if not text:
@@ -254,11 +280,19 @@ def gauge_block(sec: Section, easy_text: str, chart_html: str,
     marks = ""
     facts = sec.facts[:fact_limit] if (compact and fact_limit) else sec.facts
     extras: list[str] = []
-    if compact:  # 가드는 각주(제목 옆 ※), 가설·원칙은 대시보드로
+    if compact:  # 가드는 각주(제목 옆 ※), 가설·원칙은 싣지 않는다
         marks = inline("".join(notes.add(re.sub(r"^⚠\s*", "", e))
                                for e in sec.extras if e.startswith("⚠")))
     else:
-        extras = sec.extras
+        # [2026-08-28 Kane] 대시보드: ⚠ 가드·교차확인·관측은 본문 유지, **방향 가설만**
+        # 각주로. 독립 불릿은 통째로 옮기고 마커는 제목 옆에 붙인다(본문에 마커를 달
+        # 자리가 없으므로 — compact 의 ⚠ 처리와 같은 자리). 관측·가드 줄 끝에 매달린
+        # 가설 절은 그 줄에 ※n 을 남기고 잘라낸다.
+        marks = inline("".join(notes.add(e) for e in sec.extras
+                               if e.startswith(_HYPO_PREFIX)))
+        facts = [_split_hypothesis(b, notes) for b in facts]
+        extras = [_split_hypothesis(b, notes) for b in sec.extras
+                  if not b.startswith(_HYPO_PREFIX)]
 
     li = "".join(f'<li style="{S["lif"]}">{inline(b)}</li>' for b in facts + extras)
     le = "".join(f'<li style="{S["lie"]}">{inline(b)}</li>'
