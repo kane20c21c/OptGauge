@@ -57,6 +57,18 @@
   ③ `narrate_daily` 재실행 시 번역 API 가 실패하면 **같은 보고일의 기존
   daily_report_easy.md 를 재사용**한다(날짜 불일치면 사용 금지) — 레이아웃만 고치려고
   다시 돌렸다가 쉬운 해석이 사라지는 것을 막는다.
+  **[범례 겹침 2026-08-28 Kane]** ④ 미니차트 범례 항목 폭은 `narrate_daily.LEGEND_ENTRY_W`
+  로 **픽셀 고정**한다(`entrywidthmode="pixels"`). plotly 기본값은 텍스트 bbox 로 폭을
+  재는데, 대시보드는 이 HTML 을 **디폴트로 접힌 expander 안 iframe** 에 심으므로 최초
+  newPlot 이 숨겨진 상태에서 돌고 getBBox()=0 → 항목 폭이 45px 로 붕괴한 채 굳는다
+  (2026-08-28 8501 실측: G1 6항목 전부 pitch 45px, 필요 50~69px. 같은 파일을 file:// 로
+  열면 89.85px 로 정상 — ①의 '폭 고정'만으로는 못 잡는 별개 원인이다).
+  실제 pitch = `LEGEND_ENTRY_W + 45`(심볼 30 + 간격) · 최장 라벨 BF_blend30 59px 기준
+  pitch ≥ 95 필요 → 현재 60(pitch 105). **라벨을 더 길게 바꾸면 이 상수도 올릴 것.**
+  범례는 `y=1.0 / yanchor="bottom"` 로 플롯 위 바깥에 두고 위로 자라며(2줄 접힘 허용),
+  `LEGEND_MARGIN_T=52` 가 2줄 자리를 준다 — 차트 총높이는 그대로라 플롯 영역이 24px 준다.
+  안전망으로 daily_report.html 말미에 IntersectionObserver → `Plotly.Plots.resize` 를
+  1회 붙인다(축 눈금·부제목도 같은 측정 의존이라).
 - **대시보드 = 아웃퍼포머(homalone, Streamlit :8501) `app/pages/10_옵션게이지.py`**
   **[확정 2026-07-19 Kane — StockPortfolio :8000 에서 변경, v1 구현·배포 완료 (homalone e2770fa)]**:
   게이지 parquet 읽기 전용 소비 (LLV `data/indicators/` — 2026-07-20 이관 완료)

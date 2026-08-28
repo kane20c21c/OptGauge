@@ -74,12 +74,36 @@ def _candle_fig(df, i, ticker: str, fallback_col: str, name: str) -> go.Figure:
                                  hovertemplate="%{y:.2f}<extra>" + name + "</extra>"))
     return fig
 
+# ── 범례 기하 (2026-08-28 Kane) — 항목 폭을 **픽셀로 고정**한다 ─────────────
+# 종전에는 plotly 기본 동작(텍스트 bbox 로 항목 폭 측정)에 맡겼는데, 대시보드
+# (8501 `11_옵션게이지` ③ 전체 게이지 보고)는 이 HTML 을 **디폴트로 접힌
+# expander 안 iframe**에 심는다. 숨겨진 컨테이너에서 그려지면 getBBox() 가 0 을
+# 돌려주므로 항목 폭이 최소값으로 붕괴하고, 나중에 펼쳐도 그 좌표가 그대로 굳어
+# 라벨끼리 겹친다.
+#   2026-08-28 실측(8501 iframe): G1 6항목 전부 pitch 45px — 필요 50~69px.
+#   같은 파일을 file:// 로 직접 열면(보이는 상태) pitch 89.85px 로 정상.
+# → 텍스트 측정에 의존하지 않는 **고정 폭**이 근본 해법. 값은 최장 라벨 기준:
+#   plotly 실측 대응: 실제 항목 간격(pitch) = entrywidth + 45px(심볼 30 + 간격).
+#   최장 라벨 BF_blend30 이 59px 이므로 pitch ≥ 95 필요 → entrywidth 60(pitch 105).
+#   라벨을 더 긴 이름으로 바꾸면 이 값도 같이 올려야 한다.
+LEGEND_ENTRY_W = 60
+# 항목이 창 폭을 넘으면 plotly 가 2줄로 접는다 — 2줄(약 40px)이 들어갈 상단 마진.
+# 차트 총높이는 **건드리지 않는다**(메일 2단 레이아웃 보존) — 플롯 영역이 24px 준다.
+LEGEND_MARGIN_T = 52
+
+
 def _mini_layout(fig: go.Figure, height: int, legend: bool) -> None:
     fig.update_layout(
         height=height, template="plotly_white", hovermode="x unified",
-        margin=dict(t=28 if legend else 12, r=8, l=42, b=22),
+        margin=dict(t=LEGEND_MARGIN_T if legend else 12, r=8, l=42, b=22),
         showlegend=legend,
-        legend=dict(orientation="h", y=1.18, x=0.0, font=dict(size=10)),
+        # y=1.0 + yanchor="bottom" → 범례 아래변이 플롯 상단에 붙고 **위로** 자란다.
+        # 2줄이 되어도 플롯 영역을 침범하지 않는다 (종전 y=1.18 은 마진 28px 밖이라
+        # 위쪽이 잘렸다).
+        legend=dict(orientation="h", x=0.0, xanchor="left",
+                    y=1.0, yanchor="bottom",
+                    entrywidthmode="pixels", entrywidth=LEGEND_ENTRY_W,
+                    itemwidth=30, font=dict(size=10)),
         font=dict(size=11),
     )
     fig.update_xaxes(tickfont=dict(size=10))
@@ -351,6 +375,30 @@ hr { border: none; border-top: 1px solid #e5e9ed; margin: 16px 0 8px; }
 }
 """
 
+# 숨겨진 컨테이너에서 그려진 차트를 **보이게 된 순간 한 번** 다시 배치한다.
+# (2026-08-28) 8501 대시보드는 이 HTML 을 접힌 expander 안 iframe 에 심으므로
+# 최초 newPlot 이 display:none 상태에서 돈다 → 텍스트 bbox 0 → 축·범례 폭 붕괴.
+# 범례는 entrywidth 픽셀 고정(위 LEGEND_ENTRY_W)으로 이미 측정 비의존이지만,
+# 축 눈금·부제목은 여전히 측정에 의존하므로 안전망으로 둔다. resize 는 멱등.
+_REVEAL_JS = """<script>
+(function(){
+  if(!window.Plotly || !window.IntersectionObserver) return;
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(!e.isIntersecting) return;
+      try { Plotly.Plots.resize(e.target); } catch(_) {}
+      io.unobserve(e.target);
+    });
+  });
+  var attach = function(){
+    Array.prototype.forEach.call(
+      document.querySelectorAll('.js-plotly-plot'), function(gd){ io.observe(gd); });
+  };
+  if (document.readyState === 'complete') attach();
+  else window.addEventListener('load', attach);
+})();
+</script>"""
+
 
 def main() -> None:
     date = sys.argv[1] if len(sys.argv) > 1 else None
@@ -407,7 +455,8 @@ def main() -> None:
     html = (f"<!DOCTYPE html><html lang=\"ko\"><head><meta charset=\"utf-8\">"
             f"<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
             f"<title>OptGauge 일일 보고</title><style>{_CSS}</style>{plotly_js}</head>"
-            f"<body><div style=\"{rl.S['wrap']}\">{body}<hr>{footer_html}</div></body></html>")
+            f"<body><div style=\"{rl.S['wrap']}\">{body}<hr>{footer_html}</div>"
+            f"{_REVEAL_JS}</body></html>")
     (out_dir / "daily_report.html").write_text(html, encoding="utf-8")
 
     print(report)
