@@ -21,3 +21,7 @@ output/prov_vs_final.csv
 # YZ 병행 관측 대장 (개선 8 W6) — run_daily.sh 가 매일 전 기간 재계산·덮어쓰기.
 # 멱등이라 언제든 복원되므로 커밋하지 않는다 (2026-08-25).
 output/yz_parallel_log.csv
+
+# Claude 설정 — 공유 deny 규칙만 추적, 로컬 설정은 제외
+.claude/*
+!.claude/settings.json
